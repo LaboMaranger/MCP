@@ -7,3 +7,5 @@ Raw reads are available on the NCBI Sequence Read Archive with the accession num
 All R code (version 3.6) and data for figures 1 to 4 and supplementary figures S1 to S5 is available here.
 
 Figure 5 and S7 were done in Inkscape.
+
+<a href="https://zenodo.org/badge/latestdoi/276973722"><img src="https://zenodo.org/badge/276973722.svg" alt="DOI"></a>

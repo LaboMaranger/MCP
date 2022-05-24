@@ -1,0 +1,226 @@
+---
+title: "AA"
+author: "Richard LaBrie"
+date: "15 octobre 2019"
+output: html_document
+---
+
+#Read files
+```{r }
+data = read.csv("../Input/data.csv", sep = ",", row.names = 1)
+attach(data)
+```
+
+#Load libraries
+```{R}
+library(lattice)
+rowSd = function(matrix){
+  output = apply(matrix, 1, sd)
+  return(output)
+}
+rowMd = function(matrix){
+  output = apply(matrix, 1, madstat)
+  return(output)
+}
+```
+
+#Graphical parameters
+```{r}
+
+bg.graph = c("#9BBB59","#9BBB59", "#00B0F0", "#00B0F0", "#002060", "#002060")
+pch.graph = c(21, 22, 21, 22, 21, 22)
+```
+
+#FDOM
+```{r}
+data.start = c(1,21, 41, 61, 81, 101)
+data.end = c(20, 40, 60, 80, 100, 120)
+legend.graph = c("Surface 1", "Surface 2", "Shallow 1", "Shallow 2", "Deep 1", "Deep 2")
+FDOM.mat = na.omit(data[,c(6:9)], na.rm = T)
+
+F486.mat = matrix(FDOM.mat[-c(43:56),1], ncol = 6)
+F392.mat = matrix(FDOM.mat[-c(43:56),2], ncol = 6)
+F486.mat.ave = cbind(rowMeans(cbind(F486.mat[,1],F486.mat[,2])),
+                   rowMeans(cbind(F486.mat[,3],F486.mat[,4])),
+                   rowMeans(cbind(F486.mat[,5],F486.mat[,6])))
+F486.mat.sd = cbind(rowSd(cbind(F486.mat[,1],F486.mat[,2])),
+                   rowSd(cbind(F486.mat[,3],F486.mat[,4])),
+                   rowSd(cbind(F486.mat[,5],F486.mat[,6])))
+F486.mat.md = cbind(rowMd(cbind(F486.mat[,1],F486.mat[,2])),
+                   rowMd(cbind(F486.mat[,3],F486.mat[,4])),
+                   rowMd(cbind(F486.mat[,5],F486.mat[,6])))
+
+F392.mat.ave = cbind(rowMeans(cbind(F392.mat[,1],F392.mat[,2])),
+                   rowMeans(cbind(F392.mat[,3],F392.mat[,4])),
+                   rowMeans(cbind(F392.mat[,5],F392.mat[,6])))
+F392.mat.sd = cbind(rowSd(cbind(F392.mat[,1],F392.mat[,2])),
+                   rowSd(cbind(F392.mat[,3],F392.mat[,4])),
+                   rowSd(cbind(F392.mat[,5],F392.mat[,6])))
+F392.mat.md = cbind(rowMd(cbind(F392.mat[,1],F392.mat[,2])),
+                   rowMd(cbind(F392.mat[,3],F392.mat[,4])),
+                   rowMd(cbind(F392.mat[,5],F392.mat[,6])))
+
+rownames(F486.mat.ave) = c("0", "4", "16", "31", "92", "183", "548")
+rownames(F392.mat.ave) = rownames(F486.mat.ave)
+colnames(F486.mat.ave) = c("Epipelagic", "Mesopelagic", "Bathypelagic")
+colnames(F392.mat.ave) = colnames(F486.mat.ave)
+
+DeltaOC <- read.csv("../Input/DeltaOC.csv", row.names=1)
+DeltaOC.md <- read.csv("../Input/DeltaOC.md.csv", row.names=1)
+CRAM.abun <- read.csv("../Input/CRAM.abun.csv", row.names=1)
+CRAM.abun.md <- read.csv("../Input/CRAM.abun.md.csv", row.names=1)
+NOSC_changes <- read.csv("../Input/NOSC_changes.csv", row.names=1)
+NOSC_changes.md <- read.csv("../Input/NOSC_changes.md.csv", row.names=1)
+
+{
+pdf("../Output/FigS3.pdf", height = 7 ,width = 10)
+  par(mfcol = c(3,2))
+  par(mar = c(5, 5.5, 4, 0)+0.1)
+
+  #O/C
+  barcenter<-barplot(t(DeltaOC[-c(2,3),]),
+          beside = TRUE,
+          col = bg.graph[c(1,3,5)],
+          names.arg=c("0", "31", "92"),
+          xlab = "Time (days)",
+          las = 1,
+          ylab = "",
+          ylim = c(0.48,0.54),
+          xpd = F,
+          cex.lab = 1.8,
+          cex.axis = 1.5,
+          cex.names = 1.5)
+    mtext("Average O/C value", side = 2, line = 3.85, cex.lab = 1.5)
+    mtext("a", side = 3, at=0.6)
+  arrows(barcenter, t(DeltaOC[-c(2,3),]) - t(DeltaOC.md[-c(2,3),]),
+         barcenter, t(DeltaOC[-c(2,3),]) + t(DeltaOC.md[-c(2,3),]),
+         angle = 90,
+         code = 3,
+         length = 0.05)
+  
+  #NOSC
+  barcenter<-barplot(t(NOSC_changes[-2,]),
+          beside = TRUE,
+          col = bg.graph[c(1,3,5)],
+          names.arg=c("0", "31", "92"),
+          xlab = "Time (days)",
+          las = 1,
+          ylab = "",
+          ylim = c(-.95,-.55),
+          xpd = F,
+          cex.lab = 1.8,
+          cex.axis = 1.5,
+          cex.names = 1.5)
+  mtext("Average NOSC value", side = 2, line = 3.85, cex.lab = 1.5)
+  mtext("b", side = 3, at=0.6)
+  arrows(barcenter, t(NOSC_changes[-2,]) - t(NOSC_changes.md[-2,]),
+         barcenter, t(NOSC_changes[-2,]) + t(NOSC_changes.md[-2,]),
+         angle = 90,
+         code = 3,
+         length = 0.05)
+  
+  #CRAM
+   barcenter<-barplot(t(CRAM.abun[-2,]),
+          beside = TRUE,
+          col = bg.graph[c(1,3,5)],
+          names.arg=c("0", "31", "92"),
+          xlab = "Time (days)",
+          ylim = c(0.6,0.72),
+          las = 1,
+          ylab = "",
+          xpd = F,
+          cex.lab = 1.8,
+          cex.axis = 1.5,
+          cex.names = 1.5)
+   mtext("Proportion of CRAM", side = 2, line = 3.85, cex.lab = 1.5)
+   mtext("c", side = 3, at=0.6)
+  arrows(barcenter, t(CRAM.abun[-2,]) - t(CRAM.abun.md[-2,]),
+         barcenter, t(CRAM.abun[-2,]) + t(CRAM.abun.md[-2,]),
+         angle = 90,
+         code = 3,
+         length = 0.05)
+
+  #F486
+  barcenter<-barplot(t(F486.mat.ave[c(1,4,5),]),
+          beside = TRUE,
+          col = bg.graph[c(1,3,5)],
+          names.arg=c("0", "31", "92"),
+          xlab = "Time (days)",
+          ylim = c(0,0.08),
+          las = 1,
+          ylab = "",
+          cex.lab = 1.8,
+          cex.axis = 1.5,
+          cex.names = 1.5)
+    mtext(expression(F[lambda*em]*486~(RU)), side = 2, line = 3.85, cex.lab = 1.5)
+    mtext("d", side = 3, at=0.6)
+  arrows(barcenter, t(F486.mat.ave[c(1,4,5),]) - t(F486.mat.md[c(1,4,5),]),
+         barcenter, t(F486.mat.ave[c(1,4,5),]) + t(F486.mat.md[c(1,4,5),]),
+         angle = 90,
+         code = 3,
+         length = 0.05)
+
+  
+  #F392
+  barcenter<-barplot(t(F392.mat.ave[c(1,4,5),]),
+          beside = TRUE,
+          col = bg.graph[c(1,3,5)],
+          names.arg=c("0", "31", "92"),
+          xlab = "Time (days)",
+          las = 1,
+          ylim = c(0,0.08),
+          ylab = "",
+          cex.lab = 1.8,
+          cex.axis = 1.5,
+          cex.names = 1.5)
+  mtext(expression(F[lambda*em]*392~(RU)), side = 2, line = 3.85, cex.lab = 1.5)
+  mtext("e", side = 3, at=0.6)
+  arrows(barcenter, t(F392.mat.ave[c(1,4,5),]) - t(F392.mat.md[c(1,4,5),]),
+         barcenter, t(F392.mat.ave[c(1,4,5),]) + t(F392.mat.md[c(1,4,5),]),
+         angle = 90,
+         code = 3,
+         length = 0.05)
+ dev.off()
+}
+
+###########################Test for FDOM components##########################
+F486.mat = data.frame(FDOM = FDOM.mat[-c(43:56),1],
+                      Time = substr(rownames(FDOM.mat)[-c(43:56)],3,6),
+                      Exp = substr(rownames(FDOM.mat)[-c(43:56)],1,2))
+
+F486.time.aov = aov(FDOM~Time, data=F486.mat[F486.mat$Time=="T0" | F486.mat$Time == "T92" | F486.mat$Time == "T31",])
+F486.time.Tukey = TukeyHSD(F486.time.aov, "Time") ##92 > 31 > 0 overall
+
+F486.mat[,3] = as.character(F486.mat[,3])
+F486.mat[c(1:14),3]="Epi"
+F486.mat[c(15:28),3]="Meso"
+F486.mat[c(29:42),3]="Bathy"
+
+F486.Epi.aov = aov(FDOM~Time, data=F486.mat[F486.mat$Exp=="Epi" & F486.mat$Time=="T0" | F486.mat$Exp=="Epi" & F486.mat$Time == "T92" | F486.mat$Exp=="Epi" & F486.mat$Time == "T31",])
+F486.Epi.Tukey = TukeyHSD(F486.Epi.aov, "Time") # not significant
+F486.Meso.aov = aov(FDOM~Time, data=F486.mat[F486.mat$Exp=="Meso" & F486.mat$Time=="T0" | F486.mat$Exp=="Meso" & F486.mat$Time == "T92" | F486.mat$Exp=="Meso" & F486.mat$Time == "T31",])
+F486.Meso.Tukey = TukeyHSD(F486.Meso.aov, "Time") #Significant
+F486.Bathy.aov = aov(FDOM~Time, data=F486.mat[F486.mat$Exp=="Bathy" & F486.mat$Time=="T0" | F486.mat$Exp=="Bathy" & F486.mat$Time == "T92" | F486.mat$Exp=="Bathy" & F486.mat$Time == "T31",])
+F486.Bathy.Tukey = TukeyHSD(F486.Bathy.aov, "Time") #Significant
+
+
+F392.mat = data.frame(FDOM = FDOM.mat[-c(43:56),2],
+                      Time = substr(rownames(FDOM.mat)[-c(43:56)],3,6),
+                      Exp = substr(rownames(FDOM.mat)[-c(43:56)],1,2))
+
+F392.time.aov = aov(FDOM~Time, data=F392.mat[F392.mat$Time=="T0" | F392.mat$Time == "T92" | F392.mat$Time == "T31",])
+F392.time.Tukey = TukeyHSD(F392.time.aov, "Time") ##92 > 31 > 0 overall
+
+F392.mat[,3] = as.character(F392.mat[,3])
+F392.mat[c(1:14),3]="Epi"
+F392.mat[c(15:28),3]="Meso"
+F392.mat[c(29:42),3]="Bathy"
+
+F392.Epi.aov = aov(FDOM~Time, data=F392.mat[F392.mat$Exp=="Epi" & F392.mat$Time=="T0" | F392.mat$Exp=="Epi" & F392.mat$Time == "T92" | F392.mat$Exp=="Epi" & F392.mat$Time == "T31",])
+F392.Epi.Tukey = TukeyHSD(F392.Epi.aov, "Time") #Significant
+F392.Meso.aov = aov(FDOM~Time, data=F392.mat[F392.mat$Exp=="Meso" & F392.mat$Time=="T0" | F392.mat$Exp=="Meso" & F392.mat$Time == "T92" | F392.mat$Exp=="Meso" & F392.mat$Time == "T31",])
+F392.Meso.Tukey = TukeyHSD(F392.Meso.aov, "Time") #Significant
+F392.Bathy.aov = aov(FDOM~Time, data=F392.mat[F392.mat$Exp=="Bathy" & F392.mat$Time=="T0" | F392.mat$Exp=="Bathy" & F392.mat$Time == "T92" | F392.mat$Exp=="Bathy" & F392.mat$Time == "T31",])
+F392.Bathy.Tukey = TukeyHSD(F392.Bathy.aov, "Time") #Significant
+
+```

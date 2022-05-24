@@ -1,0 +1,150 @@
+---
+title: "DOC.Multi-G"
+author: "Richard LaBrie"
+date: "04/05/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library("minpack.lm")
+library("plotrix")
+
+
+surf.DOC = data.frame(DOC = c(64.586, 63, 66.917, 62.417, 57.833, 57.667, 58.167, 59.25, 56.917, 58.75, 
+                              57, 56.667, 57.25, 55.083, 54.667, 53.833, 54.917, 54.917, 52.3, 51.6),
+                      time = c(0,0, 4, 4, 7, 7, 10, 10, 16, 16,
+                               21, 21, 25, 25, 31, 31, 61, 61, 548, 548))
+
+shal.DOC = data.frame(DOC = c(62.5, 64.914, 58.167, 57.083, 56.417, 64.083, 58.25, 59.333, 55.75, 56.417,
+                              57.583, 57.5, 56.083, 59.25, 53.803, 52.917, 56.5, 53.417, 53.82, 51.75),
+                      time = c(0,0, 4, 4, 7, 7, 10, 10, 16, 16,
+                               21, 21, 25, 25, 31, 31, 61, 61, 548, 548))
+
+deep.DOC = data.frame(DOC = c(64.5, 64.333, 57.75, 55.667, 54.833, 61.083, 56.5, 58.5, 55.583, 54.333,
+                              57.167, 55.167, 58.75, 55.75, 52.167, 52.917, 53.083, 53.167, 53),
+                      time = c(0,0, 4, 4, 7, 7, 10, 10, 16, 16,
+                               21, 21, 25, 25, 31, 31, 61, 61, 548))
+
+#Epipelagic
+plot(DOC~time, data=surf.DOC, pch = 16, col = "#9BBB59", cex = 2)
+test.surf <- nlsLM(DOC ~ G1 * exp(-k1*time) + G2,
+                   data = surf.DOC,
+                   start = list(G1 = 12, k1 = 0.2, G2 = 52),
+                   upper = c(15, .4, 60),
+                   lower = c (10, .02, 50))
+summary(test.surf) # k = 0.05872
+surf.coeff = summary(test.surf)$coef
+curve(surf.coeff[1,1] * exp(-surf.coeff[2,1] * x) + surf.coeff[3,1], add=T, lwd = 2, col = "#9BBB59") 
+
+#Besopelagic
+points(DOC~time, data=shal.DOC, pch = 16, col = "#00B0F0", cex = 2)
+test.shallow <- nlsLM(DOC ~ G1 * exp(-k1*time) + G2,
+                      data = shal.DOC,
+                      start = list(G1 = 12, k1 = 0.2, G2 = 52),
+                      upper = c(15, .4, 60),
+                      lower = c (11, .02, 50))
+summary(test.shallow) # k = 0.06115
+shallow.coeff = summary(test.shallow)$coef
+curve(shallow.coeff[1,1] * exp(-shallow.coeff[2,1] * x) + shallow.coeff[3,1], add=T, lwd = 2, col = "#00B0F0")    
+
+
+#Bathypelagic
+plot(DOC~time, data=deep.DOC, pch = 16, col = "#002060", cex = 2)
+test.deep <- nlsLM(DOC ~ G1 * exp(-k1*time) + G2,
+                   data = deep.DOC,
+                   start = list(G1 = 12, k1 = 0.2, G2 = 52),
+                   upper = c(15, .4, 53),
+                   lower = c(11, .02, 50))
+summary(test.deep) #0.09907
+deep.coeff = summary(test.deep)$coef
+curve(deep.coeff[1,1] * exp(-deep.coeff[2,1] * x) + deep.coeff[3,1], add=T, lwd = 2, col = "#002060")  
+
+Surface.graph = data.frame(DOC = c(63.7917, 64.6667, 57.75, 58.7083, 57.8333, 56.8333, 56.1667, 54.25, 54.9167,51.95),
+                              MeanErr = c(0.7917, 2.25, 0.0833, 0.5417, 0.9167, 0.1667, 1.0883, 0.4167, 0, 0.35),
+                              time = c(0,4,7,10,16,21,25,31,61,548))
+
+Shallow.graph = data.frame(DOC = c(63.7083, 57.625, 60.25, 58.7917, 56.0833, 57.5417, 57.6667, 53, 54.9583,52.785),
+                                 MeanErr = c(1.2083, 0.5417, 3.8333, 0.5417, 0.333, 0.0417, 1.5833, 0.0833, 1.5417, 1.035),
+                                 time = c(0,4,7,10,16,21,25,31,61,548))
+
+Deep.graph = data.frame(DOC = c(64.4167, 56.7083, 57.958, 57.5, 54.9583, 56.1667, 57.25, 52.5417, 53.125,53),
+                              MeanErr = c(0.0833, 1.0417, 3.125, 1, 0.625, 1, 1.5, 0.375, 0.0417, NA),
+                              time = c(0,4,7,10,16,21,25,31,61,548))
+
+
+#All together
+#The second panel is printed in another script () and combined using Inkscape
+pdf("../Output/Fig1a.pdf", width = 7, height = 5)
+par(mar = c(5, 5, 4, 0)+0.1)
+#png("../Output/Fig1a.png", width = 7, height = 5, units = "in", res = 300)
+plot(DOC~time, data = Surface.graph,
+     xlim = c(-1,120),
+     ylim = c(52,67),
+     xlab = "Incubation time (days)",
+     ylab = expression(DOC~(µmol~C~L^-1)),
+     axes = F,
+     cex.lab = 1.3,
+     pch = 21, 
+     bg = "#9BBB59", 
+     cex = 1.6, 
+     las = 1)
+points(DOC~time, data=Shallow.graph, pch = 22, bg = "#00B0F0", cex = 1.6)
+points(DOC~time, data=Deep.graph, pch = 24, bg = "#002060", cex = 1.6)
+arrows(Surface.graph$time, Surface.graph$DOC-Surface.graph$MeanErr, 
+       Surface.graph$time, Surface.graph$DOC+Surface.graph$MeanErr, 
+       length=0.05, angle=90, code=3, col = "#9BBB59")
+
+arrows(Surface.graph$time, Shallow.graph$DOC-Shallow.graph$MeanErr, 
+       Surface.graph$time, Shallow.graph$DOC+Shallow.graph$MeanErr, 
+       length=0.05, angle=90, code=3, col = "#00B0F0")
+
+arrows(Surface.graph$time, Deep.graph$DOC-Deep.graph$MeanErr, 
+       Surface.graph$time, Deep.graph$DOC+Deep.graph$MeanErr, 
+       length=0.05, angle=90, code=3, col = "#002060")
+
+box()
+axis(1,at=c(0,20,40,60,120),labels=c("0","20","40","60","548"), cex.axis = 1.3)
+axis(2,at=c(55,60,65),labels=c("55", "60", "65"), las = 1, cex.axis = 1.3)
+axis.break(1,90)
+
+points(c(51.95)~c(120), pch = 21, bg = "#9BBB59", cex = 1.6)
+points(c(52.785)~c(120),  pch = 22, bg = "#00B0F0", cex = 1.6)
+points(c(53)~c(120), data=deep.DOC, pch = 24, bg = "#002060", cex = 1.6)
+
+arrows(120, 51.95-0.35, 120, 51.95+0.35, length=0.05, angle=90, code=3, col = "#9BBB59")
+arrows(120, 52.785-1.035, 120, 52.785+1.035, length=0.05, angle=90, code=3, col = "#00B0F0")
+
+
+curve(surf.coeff[1,1] * exp(-surf.coeff[2,1] * x) + surf.coeff[3,1], add=T, lwd = 3, col = "#9BBB59") 
+curve(shallow.coeff[1,1] * exp(-shallow.coeff[2,1] * x) + shallow.coeff[3,1], add=T, lwd = 3, col = "#00B0F0")   
+curve(deep.coeff[1,1] * exp(-deep.coeff[2,1] * x) + deep.coeff[3,1], add=T, lwd = 3, col = "#002060")  
+
+legend("topright",
+       pch=c(21,22,24),
+       pt.bg=c("#9BBB59", "#00B0F0", "#002060"),
+       text.col = c("#9BBB59", "#00B0F0", "#002060"),
+       legend = paste(c("Epipelagic", "Mesopelagic", "Bathypelagic")), bty = "n", cex=1.6)
+
+dev.off()
+
+
+#Test if degradation coefficients are statistically different
+library(rpsychi)
+sdDeepk = deep.coeff[2,2]*sqrt(length(deep.DOC$time))
+sdShallowk = shallow.coeff[2,2]*sqrt(length(shal.DOC$time))
+sdSurfk = surf.coeff[2,2]*sqrt(length(surf.DOC$time))
+
+meanDeepk = deep.coeff[2,1]
+meanShallowk = shallow.coeff[2,1]
+meanSurfk = surf.coeff[2,1]
+
+nDeep = length(deep.DOC$time)
+nShallow = length(shal.DOC$time)
+nSurf = length(surf.DOC$time)
+
+ktest = data.frame(mean = c(meanDeepk, meanShallowk, meanSurfk),
+                   sd = c(sdDeepk, sdShallowk, sdSurfk),
+                   n = c(nDeep, nShallow, nSurf))
+with(ktest, ind.oneway.second(mean,sd,n) ) #F2,56 = 0.738. Tous statistiquement identique
+
+```

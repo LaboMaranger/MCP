@@ -1,0 +1,1094 @@
+---
+title: "Community composition R code"
+author: "Richard LaBrie & Berangere Pequin"
+date: "21 novembre 2017"
+output: html_document
+---
+Primers were cut before the pipeline with cutadapt on a shell
+dada2 version is 1.4
+ShortRead version 
+silva version is 123
+
+
+#Load libraries
+```{r}
+#Install all dependancies and source them !!! Does not work on R 3.4.1
+source("http://bioconductor.org/biocLite.R") #See the website for updated version
+#BiocManager(suppressUpdates = FALSE)
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+library(BiocManager)
+BiocManager::install("ShortRead", suppressUpdates = FALSE)
+BiocManager::install("dada2", suppressUpdates = FALSE)
+
+
+
+#To remove averything in your global environment
+rm(list = ls())
+
+#BiocManager::install("devtools")
+library("devtools")
+#devtools::install_github("benjjneb/dada2")
+if(!require(snow)) install.packages("snow")
+library("snow")
+if(!require(doParallel)) install.packages("doParallel")
+library("doParallel")
+if(!require(vegan)) install.packages("vegan")
+library("vegan")
+if(!require(plotrix)) install.packages("plotrix")
+library("plotrix")
+if(!require(fields)) install.packages("fields")
+library("fields")
+if(!require(lattice)) install.packages("lattice")
+library("lattice")
+library(ShortRead); packageVersion("ShortRead")
+library(dada2); packageVersion("dada2")
+BiocManager::install("phyloseq")
+library(phyloseq); packageVersion("phyloseq")
+if(!require(ggplot2)) install.packages("ggplot2")
+library(ggplot2); packageVersion("ggplot2")
+library("extrafont")
+
+rowSd = function(matrix){
+  output = apply(matrix, 1, sd)
+  return(output)
+}
+mypalette = c("#9bbb59","#9bbb59", "#00b0f0", "#00b0f0", "#002060", "#002060")
+
+bg.graph = c("#9BBB59","#9BBB59", "#00B0F0", "#00B0F0", "#002060", "#002060")
+pch.graph = c(21, 22, 21, 22, 21, 22)
+
+
+```
+#Note. The next 4 chunks of code are about assigning taxonomy for
+#bacteria, archaea and combining them. These steps can be skiped
+#as everything was stored in an Rdata object
+
+#Assign taxonomy Bacteria
+```{r}
+#Assign taxonomy to Bacterial Kingdom
+path <- "../RawSequence/Bacteria"
+list.files(path)
+# Sort ensures forward/reverse reads are in same order
+fnFs <- sort(list.files(path, pattern="_R1_002.fastq"))
+fnRs <- sort(list.files(path, pattern="_R2_002.fastq"))
+# Extract sample names, assuming filenames have format: SAMPLENAME_XXX.fastq
+sample.names <- sapply(strsplit(fnFs, "_"), `[`, 1)
+# Specify the full path to the fnFs and fnRs
+fnFs <- file.path(path, fnFs)
+fnRs <- file.path(path, fnRs)
+plotQualityProfile(fnFs[1:2])
+plotQualityProfile(fnRs[1:2])
+
+filt_path <- file.path(path, "filtered") # Place filtered files in filtered/ subdirectory
+filtFs <- file.path(filt_path, paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(filt_path, paste0(sample.names, "_R_filt.fastq.gz"))
+
+for(i in seq_along(fnFs)) {
+  fastqPairedFilter(c(fnFs[i], fnRs[i]), c(filtFs[i], filtRs[i]),
+                    truncLen=c(270,200), 
+                    maxN=0, maxEE=c(2,2), truncQ=2, rm.phix=TRUE,
+                    compress=TRUE, verbose=TRUE)
+}
+
+errF <- learnErrors(filtFs, multithread=TRUE)
+errR <- learnErrors(filtRs, multithread=TRUE)
+plotErrors(errF, nominalQ=TRUE)
+
+derepFs <- derepFastq(filtFs, verbose=TRUE)
+derepRs <- derepFastq(filtRs, verbose=TRUE)
+# Name the derep-class objects by the sample names
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+
+dadaFs <- dada(derepFs, err=errF, multithread=TRUE)
+dadaRs <- dada(derepRs, err=errR, multithread=TRUE)
+dadaFs[[1]]
+
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
+# Inspect the merger data.frame from the first sample
+head(mergers[[1]])
+
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+table(nchar(getSequences(seqtab)))
+
+OTU_bact <- removeBimeraDenovo(seqtab, method="consensus", multithread=TRUE, verbose=TRUE) #was seqtab_nochim
+dim(OTU_bact)
+sum(OTU_bact)/sum(seqtab)
+
+
+getN <- function(x) sum(getUniques(x))
+track <- cbind(sapply(dadaFs, getN), sapply(mergers, getN), rowSums(seqtab), rowSums(OTU_bact))
+colnames(track) <- c("denoised", "merged", "tabled", "nonchim")
+rownames(track) <- sample.names
+head(track)
+write.csv(track,file="../RawSequence/bact.track1.14.1.csv")
+#Assign taxonomy using Silva
+taxa_bact132<- assignTaxonomy(OTU_bact, "../Input/silva_nr_v132_train_set.fa.gz", multithread=F)
+unname(head(taxa_bact132))
+
+samdf<-read.csv("../Input/samdf_mesococsm.csv",row.names=1)
+Meso <- strsplit(rownames(samdf), split="T")
+Meso.name = c()
+for(i in 1:length(Meso))
+  {
+    Meso.name[i] = unlist(Meso[[i]][1])
+  }
+samdf$meso = Meso.name
+
+temp = replace(samdf$meso,grep("M1",samdf$meso),"M1M2")
+temp = replace(temp,grep("M2",samdf$meso),"M1M2")
+temp = replace(temp,grep("M3",samdf$meso),"M3M4")
+temp = replace(temp,grep("M4",samdf$meso),"M3M4")
+temp = replace(temp,grep("M5",samdf$meso),"M5M6")
+temp = replace(temp,grep("M6",samdf$meso),"M5M6")
+temp = replace(temp,grep("M7",samdf$meso),"M7M8")
+temp = replace(temp,grep("M8",samdf$meso),"M7M8")
+samdf$mesogroup = temp
+
+
+ps_silva <- phyloseq(otu_table(OTU_bact, taxa_are_rows=FALSE), 
+                   sample_data(samdf), 
+                   tax_table(taxa_silva))
+```
+
+#Assign taxonomy Archaea
+```{R}
+#Assign taxonomy to Archaeal Kingdom
+path <- "../RawSequence/Archaea/" 
+list.files(path)
+
+# Sort ensures forward/reverse reads are in same order
+fnFs <- sort(list.files(path, pattern="_R1_002.fastq"))
+fnRs <- sort(list.files(path, pattern="_R2_002.fastq"))
+# Extract sample names, assuming filenames have format: SAMPLENAME_XXX.fastq
+sample.names <- sapply(strsplit(fnFs, "_"), `[`, 1)
+# Specify the full path to the fnFs and fnRs
+fnFs <- file.path(path, fnFs)
+fnRs <- file.path(path, fnRs)
+plotQualityProfile(fnFs[1:2])
+plotQualityProfile(fnRs[1:2])
+
+filt_path <- file.path(path, "filtered") # Place filtered files in filtered/ subdirectory
+filtFs <- file.path(filt_path, paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(filt_path, paste0(sample.names, "_R_filt.fastq.gz"))
+
+for(i in seq_along(fnFs)) {
+  fastqPairedFilter(c(fnFs[i], fnRs[i]), c(filtFs[i], filtRs[i]),
+                    truncLen=c(270,200), trimLeft = c(40,40),
+                    maxN=0, maxEE=c(2,5), truncQ=2, rm.phix=TRUE,
+                    compress=TRUE, verbose=TRUE)
+}
+
+errF <- learnErrors(filtFs, multithread=TRUE)
+errR <- learnErrors(filtRs, multithread=TRUE)
+plotErrors(errF, nominalQ=TRUE)
+plotErrors(errR, nominalQ=TRUE)
+
+derepFs <- derepFastq(filtFs, verbose=TRUE)
+derepRs <- derepFastq(filtRs, verbose=TRUE)
+# Name the derep-class objects by the sample names
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+
+dadaFs <- dada(derepFs, err=errF, multithread=TRUE)
+dadaRs <- dada(derepRs, err=errR, multithread=TRUE)
+dadaFs[[1]]
+
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
+# Inspect the merger data.frame from the first sample
+head(mergers[[1]])
+
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+table(nchar(getSequences(seqtab)))
+
+OTU_arch <- removeBimeraDenovo(seqtab, method="consensus", multithread=TRUE, verbose=TRUE)
+dim(OTU_arch)
+sum(OTU_arch)/sum(seqtab)
+
+
+getN <- function(x) sum(getUniques(x))
+track <- cbind(sapply(dadaFs, getN), sapply(mergers, getN), rowSums(seqtab), rowSums(OTU_arch))
+colnames(track) <- c("denoised", "merged", "tabled", "nonchim")
+rownames(track) <- sample.names
+head(track)
+write.csv(track,file="../RawSequence/arch.trackv1.14.1.csv")
+
+taxa_arch132<- assignTaxonomy(OTU_arch, "../Input/silva_nr_v132_train_set.fa.gz", multithread=TRUE)
+unname(head(taxa_arch132))
+```
+
+#Combine both datasets
+```{R}
+#CLean bacteria and archaea databases, then combine
+taxa_bact132 = as.data.frame(taxa_bact132)
+attach(taxa_bact132)
+Bact.all = OTU_bact
+for(i in 1:2290)
+{
+  colnames(Bact.all)[i] = paste(Kingdom[i],Phylum[i],Class[i],Order[i],Family[i],Genus[i],sep="_")
+}
+
+first.rem = grep(pattern = "Archa",colnames(Bact.all))
+Bact.all = Bact.all[,-c(grep(pattern = "Archa",colnames(Bact.all)))] #Removes Archaea from bact taxonomy
+second.rem = grep(pattern = "Euk",colnames(Bact.all))
+Bact.all = Bact.all[,-c(grep(pattern = "Euk",colnames(Bact.all)))] #Removes Eukaryotes from bact taxonomy
+
+taxa.bact.all = taxa_bact132
+taxa.bact.all = taxa.bact.all[-first.rem,]
+taxa.bact.all = taxa.bact.all[-second.rem,]
+
+taxa_arch132 = as.data.frame(taxa_arch132)
+attach(taxa_arch132)
+Arch.all=OTU_arch
+for(i in 1:330)
+{
+  colnames(Arch.all)[i] = paste(Kingdom[i],Phylum[i],Class[i],Order[i],Family[i],Genus[i],sep="_")
+}
+
+first.rem = grep(pattern = "Euk",colnames(Arch.all)) #Removes Eukaryotes from archaea taxonomy
+Arch.all = Arch.all[,-c(grep(pattern = "Euk",colnames(Arch.all)))]
+second.rem = grep(pattern = "Bact",colnames(Arch.all))  #Removes Bacteria from arcahea taxonomy
+Arch.all = Arch.all[,-c(grep(pattern = "Bact",colnames(Arch.all)))]
+Arch.all = Arch.all[-27,] #Removes MeT90 that is absent from bacteria
+
+taxa.arch.all = taxa_arch132
+taxa.arch.all = taxa.arch.all[-first.rem,]
+taxa.arch.all = taxa.arch.all[-second.rem,]
+
+Prok.all = cbind(Bact.all,Arch.all) #Combine abundance data
+write.csv(x = Prok.all,"../Input/Prok.all.1.3.2.csv",fileEncoding = "UTF-8")
+taxa.prok = rbind(taxa.bact.all, taxa.arch.all) #Combine taxonomy
+write.csv(taxa.prok, "../Input/taxa.prok.1.3.2.csv",fileEncoding = "UTF-8")
+```
+
+#Correction for 16S copy
+```{R}
+#Correction for Illumina contamination and gene copy number
+#taxa.prok.copygene.csv is created by hand in Excel using rrndb.umms.med.umich.edu
+correction.table <- read.csv("../Input/taxa.prok.1.3.2.NGC.csv",row.names=1) #Read correction table with gene copy number. Separator is ";" because our Excel is in French
+Prok.table <- read.csv("../Input/Prok.all.1.3.2.csv",row.names=1) #Read abundance table
+
+
+Prok.table.cor <- as.data.frame(t(t(Prok.table) / correction.table[,7])) #Apply copy gene number correction to abundance table
+selection = unlist(lapply(Prok.table.cor, function(x) #Select for minimal sequence of more than 10
+{
+  max(x) > 10
+}
+))
+Cor.prok <- Prok.table.cor[selection] #Apply slection to abundance table
+Cor.copy.gene <- correction.table[selection,] #Apply selection co copy gene table
+
+Cor.prok = cbind(1,1,Cor.prok) #Add 3 column for next steps
+
+prok.rowname = c("1500mb", "500mb", "Surfaceb", rownames(Cor.prok)[4:66]) #Store rownames in vector
+prok.rowname = unlist(strsplit(prok.rowname,"b")) #Removes "b" at end of names
+
+
+rownames(Cor.prok) = c("T3b", "T2b", "T1b", rownames(Cor.prok)[4:66]) #Change ID code by appropriate name
+Cor.prok[,1] = c(1,1,1,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,6,6,6,6,6,6,6,6,7,7,7,7,7,
+                   7,7,7,8,8,8,8,8,8,8,8,9,9,9,9,9,9,9,9) #Create vector to keep order for microcosm
+Cor.prok[,2] = matrix(unlist(strsplit(rownames(Cor.prok),"T")),ncol=2, byrow = T)[,2] #Split names using T
+Cor.prok[,2] = as.numeric(unlist(strsplit(Cor.prok[,2],"b"))) #Removes "b" at end of names
+rownames(Cor.prok) = prok.rowname #Restore real colnames in table
+
+temp = matrix(unlist(Cor.prok),ncol=dim(Cor.prok)[2], nrow= dim(Cor.prok)[1]) #Create a numeric matrix
+rownames(temp) = rownames(Cor.prok)
+colnames(temp) = colnames(Cor.prok)
+
+temp = temp[order(temp[,1], temp[,2]),] #Order for microcosm then incubation time
+Cor.prok = temp[,-c(1,2)] #Put back information in original data frame
+
+write.csv(Cor.prok, "../Input/Cor.prok132.csv", fileEncoding = "UTF-8")
+write.csv(Cor.copy.gene, "../Input/Cor.copy.gene132.csv", fileEncoding = "UTF-8")
+```
+
+
+#Fig4cd and S5
+```{R}
+#Frequency graph to determine the rare-biosphere
+rm(list=ls())
+Cor.prok <- read.csv("../Input/Cor.prok132.csv", header=T, row.names=1, sep=",")
+freq.table <- t(apply(Cor.prok, 1, function(x){x/sum(x)})) #Transform abundance in frequence
+freq.table = freq.table[c(1:50),]
+
+rowSd = function(matrix){
+  output = apply(matrix, 1, sd)
+  return(output)
+}
+rowMd = function(matrix){
+  output = apply(matrix, 1, madstat)
+  return(output)
+}
+mypalette = c("#9bbb59","#9bbb59", "#00b0f0", "#00b0f0", "#002060", "#002060")
+
+bg.graph = c("#9BBB59","#9BBB59", "#00B0F0", "#00B0F0", "#002060", "#002060")
+pch.graph = c(21, 22, 21, 22, 21, 22)
+
+sha.fct = function(data, even=F, prop=T)
+{
+  #data is your abundance matrix
+  #Even will compute evenness instead of shannon if TRUE
+  #prop is a logical argument. If TRUE, your data table is already in realtive abundance.
+  #If FALSE, the function will transform your matrix into relative abundance
+  if(prop) prop.data = data
+  else prop.data = prop.table(as.matrix(data), 1)
+  
+  out.mat = as.matrix(prop.data)
+  for(i in 1:dim(prop.data)[1])
+  {
+    for(j in 1:dim(prop.data)[2])
+    out.mat[i,j] = prop.data[i,j]*log(prop.data[i,j])*-1
+  }
+  out.mat[is.nan(out.mat)] = 0
+  if(even)
+  {
+    for(i in 1:dim(out.mat)[1])
+    {
+      temp = length(which(out.mat[i,]>0))
+      out.mat[i,] = out.mat[i,] / log(temp)
+    }
+  }
+  output = vector(length=dim(prop.data)[1])
+  for(i in 1:length(output))
+      {
+        output[i] = sum(out.mat[i,])
+      }
+  return(output)
+}
+
+Sh = sha.fct(Cor.prok[-c(51:66),], prop = F)
+
+Sh.M1 = Sh[c(4:11)]
+Sh.M2 = Sh[c(12:19)]
+Sh.M3 = Sh[c(20:25,32,26)]
+Sh.M4 = Sh[c(27:34)]
+Sh.M5 = Sh[c(35:42)]
+Sh.M6 = Sh[c(43:50)]
+
+Sh.surf.ave = cbind(rowMeans(cbind(Sh.M1, Sh.M2)))
+Sh.shal.ave = cbind(rowMeans(cbind(Sh.M3, Sh.M4)))
+Sh.deep.ave = cbind(rowMeans(cbind(Sh.M5, Sh.M6)))
+
+Sh.surf.sd = cbind(rowSd(cbind(Sh.M1, Sh.M2)))
+Sh.shal.sd = cbind(rowSd(cbind(Sh.M3, Sh.M4)))
+Sh.deep.sd = cbind(rowSd(cbind(Sh.M5, Sh.M6)))
+
+Sh.surf.md = cbind(rowMd(cbind(Sh.M1, Sh.M2)))
+Sh.shal.md = cbind(rowMd(cbind(Sh.M3, Sh.M4)))
+Sh.deep.md = cbind(rowMd(cbind(Sh.M5, Sh.M6)))
+
+Sh.time = c( 0, 4, 7,  16, 21,  31,  92, 183)
+
+{
+pdf("../Output/FigS5.pdf",14, 9.3333333) #Open pdf to store graph
+# png("../Output/FigS5.png",14, 9.333333, units = "in", res = 300)
+par(mfrow = c(2,3))
+par(mar = c(5, 8, 4, 2)+0.1)
+
+freq.table = freq.table[,order(freq.table["M1T92",], decreasing = T)] #Order table by current sample
+plot((freq.table["M1T92",]+0.00001) ~ c(1:dim(freq.table)[2]),
+     main=expression(Epi~T92),
+     xlab = "rank",
+     pch = 16,
+     ylab="",
+     col = ifelse(freq.table["M1T92",] > 0 & freq.table["M1T0",] > 0.001, "#C7144C", ifelse(freq.table["M1T92",] > 0 & freq.table["M1T0",] == 0, "#73bae6", ifelse(freq.table["M1T92",] > 0 & freq.table["M1T0",] <=  0.001, "#33a02c", "black"))),
+     las=1,
+     log="y",
+     cex.main = 1.8,
+     cex.axis = 1.8,
+     cex.lab = 1.8,
+     cex = 1.8)
+abline(h=0.001, lty=2)
+mtext("Frequency, log", side = 2, cex = 1.8, line = 5.5)
+mtext("a", side = 3, at = -50, cex = 1.3)
+
+freq.table = freq.table[,order(freq.table["M4T92",], decreasing = T)] #Order table by current sample
+plot((freq.table["M4T92",]+0.00001) ~ c(1:dim(freq.table)[2]),
+     main=expression(Meso~T92),
+     pch=16,
+     xlab = "rank",
+     ylab="",
+     col = ifelse(freq.table["M4T92",] > 0 & freq.table["M4T0",] > 0.001,
+                  "#C7144C",
+                  ifelse(freq.table["M4T92",] > 0 & freq.table["M4T0",] == 0,
+                         "#73bae6",
+                         ifelse(freq.table["M4T92",] > 0 & freq.table["M4T0",] <=  0.001, "#33a02c", "black"))),
+     las = 1,
+     log = "y",
+     cex.main = 1.8,
+     cex.axis = 1.8,
+     cex.lab = 1.8,
+     cex = 1.8)
+abline(h=0.001, lty=2)
+mtext("Frequency, log", side = 2, cex = 1.8, line = 5.5)
+mtext("b", side = 3, at = -50, cex = 1.3)
+
+freq.table = freq.table[,order(freq.table["M5T92",], decreasing = T)] #Order table by current sample
+plot((freq.table["M5T92",] + 0.00001) ~ c(1:dim(freq.table)[2]),
+     main = expression(Bathy~T92),
+     pch = 16,
+     xlab = "rank",
+     ylab="",
+     log = "y",
+     cex.main = 1.8,
+     cex.axis = 1.8,
+     cex.lab = 1.8,
+     cex = 1.8,
+     las=1,
+     col = ifelse(freq.table["M5T92",] > 0 & freq.table["M5T0",] > 0.001, "#C7144C", ifelse(freq.table["M5T92",] > 0 & freq.table["M5T0",] == 0, "#73bae6", ifelse(freq.table["M5T92",] > 0 & freq.table["M5T0",] <=  0.001, "#33a02c", "black"))))
+abline(h=0.001, lty=2)
+mtext("Frequency, log", side = 2, cex = 1.8, line = 5.5)
+mtext("c", side = 3, at = -50, cex = 1.3)
+
+legend("topright", 
+       pch = 16,
+       col = c("#C7144C", "#73bae6", "#33a02c", "black"),
+       legend = c("Were abundant", "Were absent", "Were rare", "Absent"),
+       cex = 1.8)
+
+
+plot(Sh.surf.ave ~ Sh.time,
+     ylim = c(1, 5.5),
+     xlim = c(0,200),
+     xlab = "Time (days)",
+     ylab = "",
+     las = 1,
+     pch = 21,
+     bg = bg.graph[1],
+     cex.main = 1.8,
+     cex.axis = 1.8,
+     cex.lab = 1.8,
+     cex=1.8)
+arrows(x0 = Sh.time,
+       y0 = Sh.surf.ave - Sh.surf.md, 
+       y1 = Sh.surf.ave + Sh.surf.md,
+       angle = 90,
+       code = 3,
+       length = 0.05)
+ 
+points(Sh.shal.ave ~ Sh.time,
+       ylim = c(1, 5.5),
+     xlim = c(0,200),
+       pch = 22,
+       bg = bg.graph[3],
+     cex.main = 1.8,
+     cex.axis = 1.8,
+     cex.lab = 1.8,
+     cex=1.8)
+arrows(x0 = Sh.time,
+       y0 = Sh.shal.ave - Sh.shal.md, 
+       y1 = Sh.shal.ave + Sh.shal.md,
+       angle = 90,
+       code = 3,
+       length = 0.05) 
+
+points(Sh.deep.ave ~ Sh.time,
+       ylim = c(1, 5.5),
+     xlim = c(0,200),
+       pch = 24,
+       bg = bg.graph[5],
+     cex.main = 1.8,
+     cex.axis = 1.8,
+     cex.lab = 1.8,
+     cex=1.8)
+arrows(x0 = Sh.time,
+       y0 = Sh.deep.ave - Sh.deep.md, 
+       y1 = Sh.deep.ave + Sh.deep.md,
+       angle = 90,
+       code = 3,
+       length = 0.05)   
+
+  legend("topleft", 
+         legend = c("Epipelagic", "Mesopelagic", "Bathypelagic"),
+         pch = (c(21,22,24)),
+         ncol=1,
+         text.col = bg.graph[c(1,3,5)],
+         cex = 1.8,
+         pt.bg = bg.graph[c(1,3,5)])
+mtext("Shannon", side = 2, cex = 1.8, line = 5.5)
+mtext("d", side = 3, at = -7, cex = 1.3)
+
+dev.off()
+}
+#####
+#Proportion of variants at time t that were rare at time 0
+#####
+Rare.ini = c("M1T0", "M2T0", "M1T0", "M2T0", "M1T0", "M2T0",
+             "M1T0", "M2T0", "M1T0", "M2T0", "M1T0", "M2T0",
+             "M1T0", "M2T0", "M1T0","M2T0",
+             "M3T0", "M4T0", "M3T0", "M4T0", "M3T0", "M4T0",
+             "M3T0", "M4T0", "M3T0", "M4T0", "M3T0", "M4T0",
+             "M4T0", "M4T0", "M3T0","M4T0",
+             "M5T0", "M6T0", "M5T0", "M6T0", "M5T0", "M6T0",
+             "M5T0", "M6T0", "M5T0", "M6T0", "M5T0", "M6T0",
+             "M5T0", "M6T0", "M5T0", "M6T0")
+Rare.end = c("M1T0", "M2T0", "M1T4", "M2T4", "M1T7", "M2T7",
+             "M1T16", "M2T16", "M1T21", "M2T21", "M1T31", "M2T31",
+             "M1T92", "M2T92", "M1T183","M2T183",
+             "M3T0", "M4T0", "M3T4", "M4T4", "M3T7", "M4T7",
+             "M3T16", "M4T16", "M3T21", "M4T21", "M3T31", "M4T31",
+             "M4T92", "M4T92", "M3T183","M4T183",
+             "M5T0", "M6T0", "M5T4", "M6T4", "M5T7", "M6T7",
+             "M5T16", "M6T16", "M5T21", "M6T21", "M5T31", "M6T31",
+             "M5T92", "M6T92", "M5T183", "M6T183")
+
+#Richness of the rare biosphere, i.e. proportion of ASVs that are rare/super rare
+Prop.rare = vector(length = length(Rare.end))
+names(Prop.rare) = Rare.end
+Prop.absent = vector(length = length(Rare.end))
+names(Prop.absent) = Rare.end
+Abs.rare <- Abs.absent <- Prop.rare
+
+for(i in 1:length(Rare.ini))
+{
+  Temp.rare = length(which(freq.table[Rare.end[i],]>0 & freq.table[Rare.ini[i],] <= 0.001 & freq.table[Rare.ini[i],] > 0))
+  Temp.absent = length(which(freq.table[Rare.end[i],]>0 & freq.table[Rare.ini[i],] == 0))
+  Abs.rare[i] = Temp.rare
+  Abs.absent[i] = Temp.absent
+  Prop.rare[i] = Temp.rare / length(which(freq.table[Rare.end[i],]>0)) * 100
+  Prop.absent[i] = Temp.absent / length(which(freq.table[Rare.end[i],]>0)) * 100
+}
+
+mean.vec = seq(1, 47, 2)
+mean.Prop.rare = vector(length = length(Rare.end)/2)
+mean.Prop.absent = vector(length = length(Rare.end)/2)
+for(i in mean.vec) mean.Prop.rare[(i+1)/2] = mean(c(Prop.rare[i],Prop.rare[i+1]))
+names(mean.Prop.rare) = Rare.end[mean.vec]
+for(i in mean.vec) mean.Prop.absent[(i+1)/2] = mean(c(Prop.absent[i],Prop.absent[i+1]))
+names(mean.Prop.absent) = Rare.end[mean.vec]
+
+mean.Prop.all.rare <- mean.Prop.rare + mean.Prop.absent
+mean.Prop.all.rare.mat = matrix(ncol=3, nrow=8,data = mean.Prop.all.rare)
+mean.Prop.all.rare.mat = cbind(c(0,4,7,16,21,31,92,183), mean.Prop.all.rare.mat)
+
+#Abundace of the rare biosphere, i.e. proportion of cells that are rare/super rare
+Prop.rare.numb = vector(length = length(Rare.end))
+names(Prop.rare.numb) = Rare.end
+Prop.absent.numb = vector(length = length(Rare.end))
+names(Prop.absent.numb) = Rare.end
+Abs.rare.numb <- Abs.absent.numb <- Prop.rare.numb
+
+for(i in 1:length(Rare.ini))
+{
+  Temp.rare.numb = sum(freq.table[Rare.end[i],which(freq.table[Rare.ini[i],] <= 0.001 & freq.table[Rare.ini[i],] > 0)])
+  Temp.absent.numb = sum(freq.table[Rare.end[i],which(freq.table[Rare.ini[i],] == 0)])
+  Prop.rare.numb[i] = Temp.rare.numb
+  Prop.absent.numb[i] = Temp.absent.numb
+}
+
+
+mean.Prop.rare.numb <-sd.Prop.rare.numb<- vector(length = length(Rare.end)/2)
+mean.Prop.absent.numb <- sd.Prop.absent.numb<- vector(length = length(Rare.end)/2)
+for(i in mean.vec){
+  mean.Prop.rare.numb[(i+1)/2] =  mean(c(Prop.rare.numb[i],Prop.rare.numb[i+1]))
+  sd.Prop.rare.numb[(i+1)/2] =sd(c(Prop.rare.numb[i],Prop.rare.numb[i+1]))
+  }
+names(mean.Prop.rare) = Rare.end[mean.vec]
+for(i in mean.vec) {
+  mean.Prop.absent.numb[(i+1)/2] = mean(c(Prop.absent.numb[i], Prop.absent.numb[i+1]))
+  sd.Prop.absent.numb[(i+1)/2] = sd(c(Prop.absent.numb[i], Prop.absent.numb[i+1]))
+  }
+names(mean.Prop.absent.numb) = Rare.end[mean.vec]
+
+mean.Prop.all.rare.numb <- mean.Prop.rare.numb + mean.Prop.absent.numb
+mean.Prop.all.rare.numb.mat = matrix(ncol=3, nrow=8,data = mean.Prop.all.rare.numb)*100
+mean.Prop.all.rare.numb.mat = cbind(c(0,4,7,16,21,31,92,183), mean.Prop.all.rare.numb.mat)
+
+{
+pdf("../Output/Fig4cd.pdf")
+# png("../Output/FigS8.SciAdv.png", family = "ArialMT", 7, 5, res = 300, units = "in")
+par(mfrow=c(1,2))
+plot(mean.Prop.all.rare.mat[,2] ~ mean.Prop.all.rare.mat[,1],
+     ylim = c(40,90), pch = 16, col = "#9BBB59", las = 1,
+     xlab = "Incubation time (days)",
+     ylab = "ASVs of the rare biosphere (%)")
+points(mean.Prop.all.rare.mat[,3] ~ mean.Prop.all.rare.mat[,1],
+     ylim = c(40,90), pch = 16, col = "#00B0F0")
+points(mean.Prop.all.rare.mat[,4] ~ mean.Prop.all.rare.mat[,1],
+     ylim = c(40,90), pch = 16, col = "#002060")
+mtext("c", side = 3, at = -10, cex = 1)
+
+plot(mean.Prop.all.rare.numb.mat[,2] ~ mean.Prop.all.rare.numb.mat[,1],
+     ylim = c(0,70), pch = 16, col = "#9BBB59", las = 1,
+     xlab = "Incubation time (days)",
+     ylab = "Abundance of the rare biosphere (%)")
+points(mean.Prop.all.rare.numb.mat[,3] ~ mean.Prop.all.rare.numb.mat[,1],
+     ylim = c(0,70), pch = 16, col = "#00B0F0")
+points(mean.Prop.all.rare.numb.mat[,4] ~ mean.Prop.all.rare.numb.mat[,1],
+     ylim = c(0,70), pch = 16, col = "#002060")
+mtext("d", side = 3, at = -10, cex = 1)
+dev.off()
+}
+
+```
+
+#Fig S4
+```{r}
+#Calculate relative change in OTUs and compute NMDS on averaged samples
+Cor.prok <- read.csv("../Input/Cor.prok132.csv", header=T, row.names=1, sep=",")
+temp = as.data.frame(t(Cor.prok))
+temp = temp[,-c(51:66)]
+prok.mean = as.data.frame(matrix(data = NA, nrow = dim(temp)[1], ncol = 24))
+#Calculate average for epipelagic treatments
+prok.mean[,1] = (temp$M1T0 + temp$M2T0)/2
+prok.mean[,2] = (temp$M1T4 + temp$M2T4)/2
+prok.mean[,3] = (temp$M1T7 + temp$M2T7)/2
+prok.mean[,4] = (temp$M1T16 + temp$M2T16)/2
+prok.mean[,5] = (temp$M1T21 + temp$M2T21)/2
+prok.mean[,6] = (temp$M1T31 + temp$M2T31)/2
+prok.mean[,7] = (temp$M1T92 + temp$M2T92)/2
+prok.mean[,8] = (temp$M1T183 + temp$M2T183)/2
+
+#Calculate average for mesopelagic treatments
+prok.mean[,9] = (temp$M3T0 + temp$M4T0)/2
+prok.mean[,10] = (temp$M3T4 + temp$M4T4)/2
+prok.mean[,11] = (temp$M3T7 + temp$M4T7)/2
+prok.mean[,12] = (temp$M3T16 + temp$M4T16)/2
+prok.mean[,13] = (temp$M3T21 + temp$M4T21)/2
+prok.mean[,14] = (temp$M3T31 + temp$M4T31)/2
+prok.mean[,15] = temp$M4T92 #Note. M3T92 doesn't exist
+prok.mean[,16] = (temp$M3T183 + temp$M4T183)/2
+
+#Calculate average for bathypelagic treatments
+prok.mean[,17] = (temp$M5T0 + temp$M6T0)/2
+prok.mean[,18] = (temp$M5T4 + temp$M6T4)/2
+prok.mean[,19] = (temp$M5T7 + temp$M6T7)/2
+prok.mean[,20] = (temp$M5T16 + temp$M6T16)/2
+prok.mean[,21] = (temp$M5T21 + temp$M6T21)/2
+prok.mean[,22] = (temp$M5T31 + temp$M6T31)/2
+prok.mean[,23] = (temp$M5T92 + temp$M6T92)/2
+prok.mean[,24] = (temp$M5T183 + temp$M6T183)/2
+colnames(prok.mean) = c("Epi0", "Epi4", "Epi7", "Epi16", "Epi21", "Epi31", "Epi92", "Epi183",
+                        "Meso0", "Meso4", "Meso7", "Meso16", "Meso21", "Meso31", "Meso92", "Meso183",
+                        "Bathy0", "Bathy4", "Bathy7", "Bathy16", "Bathy21", "Bathy31", "Bathy92", "Bathy183")
+rownames(prok.mean) = rownames(temp)
+write.csv(prok.mean, "../Input/prok.mean132.csv", fileEncoding = "UTF-8")
+prok.mean = read.csv("../Input/prok.mean132.csv", row.names = 1)
+attach(prok.mean)
+
+library(vegan)
+superNMDS<-metaMDS(t(prok.mean),distance="bray")
+NMDS1 = superNMDS$species[,1]
+NMDS2 = superNMDS$species[,2]
+
+names = c("NMDS1","NMDS2",
+          "Epi4", "Epi7", "Epi16", "Epi21", "Epi31", "Epi92", "Epi183",
+          "Meso4", "Meso7", "Meso16", "Meso21", "Meso31", "Meso92", "Meso183",
+          "Bathy4", "Bathy7", "Bathy16", "Bathy21", "Bathy31", "Bathy92", "Bathy183")
+
+#NMDS samples representation
+nmds.x = superNMDS$points[,1]
+nmds.y = superNMDS$points[,2]
+#Create color code
+nmds.col = c("#002060", "#9BBB59", "#00B0F0") #Bathy = dark blue; Epi = green; Meso = light blue
+nmds.col.key = c("#9BBB59", "#00B0F0", "#002060") #Epi = green; Meso = light blue; Bathy = dark blue
+#Create groups
+nmds.gr = c(rep("Epipelagic", 8), rep("Mesopelagic", 8), rep("Bathypelagic", 8))
+
+#Note. Arrows were added in Inkscape
+{
+pdf("../Output/FigS4.pdf", family = "ArialMT", 5, 5)
+# png("../Output/FigS4.png", family = "ArialMT", 5, 5, res = 300, units = "in")
+print(xyplot(nmds.y ~ nmds.x,
+     xlim=c(-3,1.6), ylim=c(-2,1.8),
+     las = 1,
+     xlab = "NMDS 1",
+     ylab = "NMDS 2",
+     pch = 16,
+     cex = 1.05,
+     type = "b",
+     group = nmds.gr,
+     par.settings = simpleTheme(col.line = nmds.col, col = nmds.col),
+     key = list(text = list(as.character(unique(nmds.gr)),
+               col = nmds.col.key),
+               lines = list(lwx = 1, col = nmds.col.key, type="b", pch = 16),
+               col = nmds.col.key,
+               corner = c(0, 1))))
+dev.off()
+}
+```
+
+#Fig.4ab Sci Advances
+```{r}
+prok.mean = read.csv("../Input/prok.mean132.csv", row.names = 1)
+attach(prok.mean)
+
+prok.mean = prok.mean[-which(rowSums(prok.mean)==0),]
+
+freq.table.mean <- t(apply(prok.mean, 2, function(x){x/sum(x)})) #Transform abundance in frequence
+
+#Create objects for barplots
+Verruco.pointer = grep("Verruco",colnames(freq.table.mean))
+Verrucomicrobia.all = freq.table.mean[,Verruco.pointer] #All Verruco
+Verrucomicrobia = rowSums(Verrucomicrobia.all)
+# Verrucomicrobia.ASV = apply(Verrucomicrobia.all, 1, function(x) length(which(x!=0)))
+
+Plancto.pointer = grep("Planctomy",colnames(freq.table.mean))
+Planctomycetes.all = freq.table.mean[,Plancto.pointer]#All Plancto
+Planctomycetes = rowSums(Planctomycetes.all)
+# Planctomycetes.ASV = apply(Planctomycetes.all, 1, function(x) length(which(x!=0)))
+
+Pelagibacter.pointer = grep("Pelagibacter",colnames(freq.table.mean))
+Pelagibacter.all = freq.table.mean[,Pelagibacter.pointer] #Some Alpha
+Pelagibacter = rowSums(Pelagibacter.all)
+# Pelagibacter.ASV = apply(Pelagibacter.all, 1, function(x) length(which(x!=0)))
+SAR11_deep.pointer = grep("SAR11_clade_Deep",colnames(freq.table.mean))
+SAR11_deep.all = freq.table.mean[,SAR11_deep.pointer] #Some Alpha
+SAR11_deep = rowSums(SAR11_deep.all)
+# SAR11_deep.ASV = apply(SAR11_deep.all, 1, function(x) length(which(x!=0)))
+Rhodo.pointer = grep("Rhodobact",colnames(freq.table.mean))
+Rhodobacteraceae.all = freq.table.mean[,Rhodo.pointer] #Some Alpha
+Rhodobacteraceae = rowSums(Rhodobacteraceae.all)
+# Rhodobacteraceae.ASV = apply(Rhodobacteraceae.all, 1, function(x) length(which(x!=0)))
+
+
+OtherAplha.pointer = grep("Alphaproteo",colnames(freq.table.mean))
+OtherAplha.pointer = OtherAplha.pointer[!OtherAplha.pointer %in% Pelagibacter.pointer]
+OtherAplha.pointer = OtherAplha.pointer[!OtherAplha.pointer %in% SAR11_deep.pointer]
+OtherAplha.pointer = OtherAplha.pointer[!OtherAplha.pointer %in% Rhodo.pointer]
+OtherAlphaproteobacteria.all = freq.table.mean[,OtherAplha.pointer]
+OtherAlphaproteobacteria = rowSums(OtherAlphaproteobacteria.all)
+# OtherAlphaproteobacteria.ASV = apply(OtherAlphaproteobacteria.all, 1, function(x) length(which(x!=0)))
+
+
+Beta.pointer = grep("Betaproteo",colnames(freq.table.mean))
+Betaproteo.all = freq.table.mean[,Beta.pointer] #All betaproteo
+Betaproteobacteria = rowSums(Betaproteo.all)
+# Betaproteobacteria.ASV = apply(Betaproteo.all, 1, function(x) length(which(x!=0)))
+
+Colwe.pointer = grep("Colwellia",colnames(freq.table.mean))
+Colwelliaceae.all = freq.table.mean[,Colwe.pointer] #some Gamma
+Colwelliaceae = rowSums(Colwelliaceae.all)
+# Colwelliaceae.ASV = apply(Colwelliaceae.all, 1, function(x) length(which(x!=0)))
+
+Pseudo.pointer = grep("Pseudoaltero",colnames(freq.table.mean))
+Pseudoalteromonas.all = freq.table.mean[,Pseudo.pointer] #some Gamma
+Pseudoalteromonas =rowSums(Pseudoalteromonas.all)
+# Pseudoalteromonas.ASV = apply(Pseudoalteromonas.all, 1, function(x) length(which(x!=0)))
+
+OtherGamma.pointer = grep("Gammaproteo",colnames(freq.table.mean))
+OtherGamma.pointer = OtherGamma.pointer[!OtherGamma.pointer %in% Colwe.pointer]
+OtherGamma.pointer = OtherGamma.pointer[!OtherGamma.pointer %in% Pseudo.pointer]
+OtherGammaproteobacteria.all = freq.table.mean[,OtherGamma.pointer]
+OtherGammaproteobacteria = rowSums(OtherGammaproteobacteria.all)
+# OtherGammaproteobacteria.ASV = apply(OtherGammaproteobacteria.all, 1, function(x) length(which(x!=0)))
+
+
+Thaum.pointer = grep("Thaumarcha",colnames(freq.table.mean))
+Thaumarchaeota.all = freq.table.mean[,Thaum.pointer] #All Thaumar
+Thaumarchaeota = rowSums(Thaumarchaeota.all)
+# Thaumarchaeota.ASV = apply(Thaumarchaeota.all, 1, function(x) length(which(x!=0)))
+
+Eury.pointer = grep("Euryarcha",colnames(freq.table.mean))
+Euryarchaeota.all = freq.table.mean[,Eury.pointer] #All Euryar
+Euryarchaeota = rowSums(Euryarchaeota.all)
+# Euryarchaeota.ASV = apply(Euryarchaeota.all, 1, function(x) length(which(x!=0)))
+
+Polari.pointer = grep("Polari",colnames(freq.table.mean))
+Polari.all = freq.table.mean[,Polari.pointer] #Some Bacteroidetes
+Polaribacter = rowSums(Polari.all)
+# Polaribacter.ASV = apply(Polari.all, 1, function(x) length(which(x!=0)))
+
+OtherBacter.pointer = grep("Bacteroide",colnames(freq.table.mean))
+OtherBacter.pointer = OtherBacter.pointer[!OtherBacter.pointer %in% Polari.pointer]
+OtherBacteroidetes.all = freq.table.mean[,OtherBacter.pointer]
+OtherBacteroidetes = rowSums(OtherBacteroidetes.all)
+# OtherBacteroidetes.ASV = apply(OtherBacteroidetes.all, 1, function(x) length(which(x!=0)))
+
+#Merge all objects together
+Time = c(0,4,7,16,21,31,92,183,0,4,7,16,21,31,92,183,0,4,7,16,21,31,92,183)
+
+Barplot.div.data = t(cbind(Time,
+                         Verrucomicrobia, Planctomycetes, Pelagibacter,
+                         Polaribacter,
+                         SAR11_deep, Rhodobacteraceae, Colwelliaceae,
+                         Pseudoalteromonas, Thaumarchaeota, Euryarchaeota,
+                         Betaproteobacteria, OtherAlphaproteobacteria,
+                         OtherGammaproteobacteria, OtherBacteroidetes))
+Barplot.div.data = Barplot.div.data[,order(Barplot.div.data[1,], decreasing = F)]
+
+Barplot.div.data = rbind(Barplot.div.data, Other=c(1 - colSums(Barplot.div.data[-1,])))
+
+barplot.space = c(0.25,0.25,0.25,1, 0.25,0.25,1, 0.25,0.25,1, 0.25,0.25,1, 0.25,0.25,1, 0.25,0.25,1, 0.25,0.25,1, 0.25,0.25)
+barplot.names = c(NA,0,NA, NA,4,NA, NA,7,NA, NA,16,NA, NA,21,NA, NA,31,NA, NA,92,NA, NA,183,NA)
+
+barplot.col = c("#9BBB59", "Light green", "Cyan",
+                "hotpink",
+                "Light blue", "#73BAE6", "indianred1",
+                "Magenta", "Chartreuse 3", "Dark green",
+                "darkseagreen1", "#002060",
+                "#C7144C", "lightpink", "White")
+
+
+
+
+#Repeat previous steps but with flow cytemotry corrected reads abundance
+Cor.prok <- read.csv("../Input/Cor.prok132.csv", header=T, row.names=1, sep=",")
+temp = as.data.frame(t(Cor.prok))
+temp = temp[,-c(1:3,51:66)]
+
+Alldata = read.csv("../Input/data.csv", sep = ",", row.names = 1)
+BA = Alldata$Cyto
+names(BA) = rownames(Alldata)
+BA = BA[names(BA) %in% colnames(temp)]
+
+BA.mean = vector(length=24)
+for(i in 1:8){
+  BA.mean[i] = (BA[i]+BA[i+8])/2
+}
+for(i in 9:16){
+  BA.mean[i] = (BA[i]+BA[i+8])/2
+}
+for(i in 17:24){
+  BA.mean[i] = (BA[i]+BA[i+8])/2
+}
+names(BA.mean) = c("Epi0", "Epi4", "Epi7", "Epi16", "Epi21", "Epi31", "Epi92", "Epi183",
+                   "Meso0", "Meso4", "Meso7", "Meso16", "Meso21", "Meso31", "Meso92", "Meso183",
+                    "Bathy0", "Bathy4", "Bathy7", "Bathy16", "Bathy21", "Bathy31", "Bathy92", "Bathy183")
+#Reorder BA to match rel abundance matrix order
+BA.mean = BA.mean[c(1,9,17,2,10,18,3,11,19,4,12,20,5,13,21,6,14,22,7,15,23,8,16,24)]
+
+Barplot.abs.data = t(t(Barplot.div.data) * BA.mean)
+
+{
+pdf("../Output/Fig4ab.pdf", height = 8, width = 24)
+par(mfrow=c(1,3))
+par(mar=c(4,5,2,1)+.1)
+
+barplot(Barplot.div.data[-1,],
+        names.arg = barplot.names, space = barplot.space,
+        ylab = "Proportion", xlab = "Incubation time (days)",
+        las = 1, ylim = c(0,1),
+        col = barplot.col,
+        cex.axis = 1.5,
+        cex.names = 1.5,
+        cex.lab = 1.5)
+mtext("a", side = 3, at = 0, cex = 1.4)
+
+barplot(Barplot.abs.data[-1,],
+        names.arg = barplot.names, space = barplot.space,
+        ylab = expression(Abundance~(cells~mL^-1)), xlab = "Incubation time (days)",
+        las = 1,
+        col = barplot.col,
+        cex.axis = 1.5,
+        cex.names = 1.5,
+        cex.lab = 1.5)
+mtext("b", side = 3, at = 0, cex = 1.4)
+dev.off()     
+
+
+pdf("../Output/Fig4 LEGEND.pdf", width = 8, height = 8)
+barplot(Barplot.div.data[-1,],
+        names.arg = barplot.names, space = barplot.space,
+        ylab = "Proportion", xlab = "Incubation time (days)",
+        las = 1, ylim = c(0,1),
+        col = barplot.col,
+        legend.text = rownames(Barplot.div.data)[-1])
+dev.off()  
+}
+```
+
+#Fig 3
+#Correction for the flow cytometry abundance
+```{r}
+rm(list=ls())
+#Calculate relative change in OTUs and compute NMDS on averaged samples
+Cor.prok <- read.csv("../Input/Cor.prok132.csv", header=T, row.names=1, sep=",")
+temp = as.data.frame(t(Cor.prok))
+temp = temp[,-c(1:3,51:66)]
+
+Alldata = read.csv("../Input/data.csv", sep = ",", row.names = 1)
+BA = Alldata$Cyto
+names(BA) = rownames(Alldata)
+BA = BA[names(BA) %in% colnames(temp)]
+temp.BA = temp
+for(i in 1:length(BA))
+{
+  temp.BA[,i] = (temp.BA[,i] / sum(temp.BA[,i]))*BA[i]
+}
+
+prok.mean.BA = as.data.frame(matrix(data = NA, nrow = dim(temp.BA)[1], ncol = 24))
+#Calculate average for epipelagic treatments
+prok.mean.BA[,1] = (temp.BA$M1T0 + temp.BA$M2T0)/2
+prok.mean.BA[,2] = (temp.BA$M1T4 + temp.BA$M2T4)/2
+prok.mean.BA[,3] = (temp.BA$M1T7 + temp.BA$M2T7)/2
+prok.mean.BA[,4] = (temp.BA$M1T16 + temp.BA$M2T16)/2
+prok.mean.BA[,5] = (temp.BA$M1T21 + temp.BA$M2T21)/2
+prok.mean.BA[,6] = (temp.BA$M1T31 + temp.BA$M2T31)/2
+prok.mean.BA[,7] = (temp.BA$M1T92 + temp.BA$M2T92)/2
+prok.mean.BA[,8] = (temp.BA$M1T183 + temp.BA$M2T183)/2
+
+#Calculate average for mesopelagic treatments
+prok.mean.BA[,9] = (temp.BA$M3T0 + temp.BA$M4T0)/2
+prok.mean.BA[,10] = (temp.BA$M3T4 + temp.BA$M4T4)/2
+prok.mean.BA[,11] = (temp.BA$M3T7 + temp.BA$M4T7)/2
+prok.mean.BA[,12] = (temp.BA$M3T16 + temp.BA$M4T16)/2
+prok.mean.BA[,13] = (temp.BA$M3T21 + temp.BA$M4T21)/2
+prok.mean.BA[,14] = (temp.BA$M3T31 + temp.BA$M4T31)/2
+prok.mean.BA[,15] = temp.BA$M4T92 #Note. M3T92 doesn't exist
+prok.mean.BA[,16] = (temp.BA$M3T183 + temp.BA$M4T183)/2
+
+#Calculate average for bathypelagic treatments
+prok.mean.BA[,17] = (temp.BA$M5T0 + temp.BA$M6T0)/2
+prok.mean.BA[,18] = (temp.BA$M5T4 + temp.BA$M6T4)/2
+prok.mean.BA[,19] = (temp.BA$M5T7 + temp.BA$M6T7)/2
+prok.mean.BA[,20] = (temp.BA$M5T16 + temp.BA$M6T16)/2
+prok.mean.BA[,21] = (temp.BA$M5T21 + temp.BA$M6T21)/2
+prok.mean.BA[,22] = (temp.BA$M5T31 + temp.BA$M6T31)/2
+prok.mean.BA[,23] = (temp.BA$M5T92 + temp.BA$M6T92)/2
+prok.mean.BA[,24] = (temp.BA$M5T183 + temp.BA$M6T183)/2
+colnames(prok.mean.BA) = c("Epi0", "Epi4", "Epi7", "Epi16", "Epi21", "Epi31", "Epi92", "Epi183",
+                        "Meso0", "Meso4", "Meso7", "Meso16", "Meso21", "Meso31", "Meso92", "Meso183",
+                        "Bathy0", "Bathy4", "Bathy7", "Bathy16", "Bathy21", "Bathy31", "Bathy92", "Bathy183")
+rownames(prok.mean.BA) = rownames(temp.BA)
+write.csv(prok.mean.BA, "../Input/prok.mean.BA132.csv", fileEncoding = "UTF-8")
+prok.mean.BA = read.csv("../Input/prok.mean.BA132.csv", row.names = 1)
+attach(prok.mean.BA)
+
+library(vegan)
+superNMDS.BA<-metaMDS(t(prok.mean.BA),distance="bray")
+NMDS1.BA = superNMDS.BA$species[,1]
+NMDS2.BA = superNMDS.BA$species[,2]
+
+names = c("NMDS1","NMDS2",
+          "Epi0","Epi4", "Epi7", "Epi16", "Epi21", "Epi31", "Epi92", "Epi183",
+          "Meso0","Meso4", "Meso7", "Meso16", "Meso21", "Meso31", "Meso92", "Meso183",
+          "Bathy0","Bathy4", "Bathy7", "Bathy16", "Bathy21", "Bathy31", "Bathy92", "Bathy183")
+
+delta.mean.BA = as.data.frame(matrix(NA,nrow=length(prok.mean.BA[,1]),ncol=length(names)))
+colnames(delta.mean.BA) = names
+#Creating the matrix of relative change through time
+{
+  delta.mean.BA$NMDS1 = NMDS1.BA 
+  delta.mean.BA$NMDS2 = NMDS2.BA
+  
+  #Calculate relative change for epi- treatment
+  delta.mean.BA$Epi0 = Epi0
+  delta.mean.BA$Epi4 = (Epi4 - Epi0) / Epi0
+  delta.mean.BA$Epi7 = (Epi7 - Epi0) / Epi0
+  delta.mean.BA$Epi16 = (Epi16 - Epi0) / Epi0
+  delta.mean.BA$Epi21 = (Epi21 - Epi0) / Epi0
+  delta.mean.BA$Epi31 = (Epi31 - Epi0) / Epi0
+  delta.mean.BA$Epi92 = (Epi92 - Epi0) / Epi0
+  delta.mean.BA$Epi183 = (Epi183 - Epi0) / Epi0
+  
+  #Calculate relative change for meso- treatment
+  delta.mean.BA$Meso0 = Meso0
+  delta.mean.BA$Meso4 = (Meso4 - Meso0) / Meso0
+  delta.mean.BA$Meso7 = (Meso7 - Meso0) / Meso0
+  delta.mean.BA$Meso16 = (Meso16 - Meso0) / Meso0
+  delta.mean.BA$Meso21 = (Meso21 - Meso0) / Meso0
+  delta.mean.BA$Meso31 = (Meso31 - Meso0) / Meso0
+  delta.mean.BA$Meso92 = (Meso92 - Meso0) / Meso0
+  delta.mean.BA$Meso183 = (Meso183 - Meso0) / Meso0
+  
+  #Calculate relative change for bathy- treatment
+  delta.mean.BA$Bathy0 = Bathy0
+  delta.mean.BA$Bathy4 = (Bathy4 - Bathy0) / Bathy0
+  delta.mean.BA$Bathy7 = (Bathy7 - Bathy0) / Bathy0
+  delta.mean.BA$Bathy16 = (Bathy16 - Bathy0) / Bathy0
+  delta.mean.BA$Bathy21 = (Bathy21 - Bathy0) / Bathy0
+  delta.mean.BA$Bathy31 = (Bathy31 - Bathy0) / Bathy0
+  delta.mean.BA$Bathy92 = (Bathy92 - Bathy0) / Bathy0
+  delta.mean.BA$Bathy183 = (Bathy183 - Bathy0) / Bathy0
+
+}
+
+#Change -Inf to -1; change values >1 to 1
+
+for(j in 3:dim(delta.mean.BA)[2])
+{
+  for(i in 1:dim(delta.mean.BA)[1])
+  {
+    if(is.na(delta.mean.BA[i,j] == -2)) delta.mean.BA[i,j]=0
+  }
+}
+for(j in 3:dim(delta.mean.BA)[2])
+{
+  for(i in 1:dim(delta.mean.BA)[1])
+  {
+    if(delta.mean.BA[i,j] >= 1) delta.mean.BA[i,j]=1
+  }
+}
+write.csv(delta.mean.BA,"../Input/DeltaASVmean.BA132.csv", fileEncoding = "UTF-8")
+delta.mean.BA = read.csv("../Input/DeltaASVmean.BA132.csv", row.names=1, header=T)
+
+patterns = c("Verruco", "Planctomy", "SAR11_clade_Surface_1", "Colwellia", "Thaumarchae", "Pseudoalteromonas")
+
+nmds.pch.BA = vector(length = dim(prok.mean.BA)[1])
+nmds.pch.BA[grep(pattern = "Verruco", rownames(prok.mean.BA))] = 21
+#nmds.pch.BA[grep(pattern = "Planctomy", rownames(prok.mean.BA))] = 21
+nmds.pch.BA[grep(pattern = "Colwellia", rownames(prok.mean.BA))] = 22
+nmds.pch.BA[grep(pattern = "Pseudoalteromonas", rownames(prok.mean.BA))] = 23
+nmds.pch.BA[grep(pattern = "SAR11_clade_Surface_1", rownames(prok.mean.BA))] = 24
+nmds.pch.BA[grep(pattern = "Thaumarchae", rownames(prok.mean.BA))] = 25
+nmds.pch.BA[grep(pattern = "Cyanob", rownames(prok.mean.BA))] = 1
+nmds.pch.BA[grep(pattern = "Rhodobacteraceae", rownames(prok.mean.BA))] = 2
+nmds.pch.BA[grep(pattern = "Euryarchaeota", rownames(prok.mean.BA))] = 3
+
+delta.mean.BA = cbind(delta.mean.BA[,c(1,2)], nmds.pch.BA, delta.mean.BA[,c(3:length(delta.mean.BA))])
+fig3.names = c("Epi92", "Meso92", "Bathy92")
+{
+pdf("../Output/Fig3.pdf",13.3,4.66666) 
+# png("../Output/Fig3.png",13.3,4.66666, res = 600, units = "in" )
+
+
+par(mfrow=c(1,3))
+par(mar = c(5, 5, 4, 0)+0.1)
+par(oma=c(0,0,0,5))
+for(i in c(10, 18, 26))
+{
+  if(i==10) j=1
+  if(i==18) j=2
+  if(i==26) j=3
+    print(colnames(delta.mean.BA)[i])
+    delta.mean.BA=delta.mean.BA[order(delta.mean.BA[,i]),] #Order abundance to fit with color scale
+    my.color.ramp.fct<-colorRamp(c("blue4", "blue3", "blue", "turquoise4", "turquoise2", "white", "yellow", "orange", "orange3", "orangered", "orangered3", "red")) #Color scale
+    as.rgb.channels<-my.color.ramp.fct(decostand(delta.mean.BA[,i],method="range"))
+    Spear.color<-rgb(as.rgb.channels,maxColorValue=255)
+    
+    
+    #Put cex = 1 for normal sized points in the graph
+    
+    plot(x = delta.mean.BA$NMDS1[delta.mean.BA[,i] !=0],
+         y = delta.mean.BA$NMDS2[delta.mean.BA[,i] !=0],
+         pch = delta.mean.BA$nmds.pch[delta.mean.BA[,i] !=0],
+         cex = 2,
+         cex.lab = 1.8,
+         cex.axis = 1.8,
+         cex.main = 1.8,
+         bg = Spear.color[delta.mean.BA[,i]!= 0],
+         col = Spear.color[delta.mean.BA[,i]!= 0],
+         xlim=c(-3,1.8),
+         ylim=c(-2.1,1.8),
+         xlab="NMDS1",
+         ylab="NMDS2",
+         lwd=0.75,
+         font.main=20,
+         font.lab=20,
+         main = bquote(Delta~.(fig3.names[j])),
+         las=1)
+    mtext(text = c("a","b","c")[j], side = 3, at = -3.5, cex = 1.4)
+  
+        
+    if(j==3)
+      {
+      legend("bottomleft",
+           pch = c(21, 22, 23, 24, 25, 1, 2, 3, 0),
+           pt.bg = c("black", "black", "black", "black", "black", "white"),
+           legend = c("Verrucomicrobia", "Colwellia", "Pseudoalteromonas", "SAR11 Surface", "Thaumarchaeota", "Cyanobacteria",  "Rhodobacteraceae", "Euryarchaeota", "other"),
+           cex = 1.2,
+           bty = "n")
+      par(oma = c(0,0,0,2))
+   image.plot(legend.only=TRUE,
+           legend.line=2.7,
+           zlim = range(c(delta.mean.BA[,i])),
+           col = colorRampPalette(c("blue4", "blue3", "blue", "turquoise4", "turquoise2", "white", "yellow", "orange", "orange3", "orangered", "orangered3", "red")) (200), outer=T)
+        }
+}
+dev.off()
+}
+```

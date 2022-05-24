@@ -1,0 +1,1079 @@
+---
+title: "Microcosme"
+author: "Richard LaBrie"
+date: "7 mars 2018"
+output: html_document
+---
+
+#Load libraries and functions
+```{r echo = "FALSE"}
+#Install all dependancies and source them !!! Does not work on R 3.4.1
+if(!require(lattice)) install.packages("lattice")
+library("lattice")
+if(!require(vegan)) install.packages("vegan")
+library("vegan")
+if(!require(plotrix)) install.packages("plotrix")
+library("plotrix")
+if(!require(fields)) install.packages("fields")
+library("fields")
+library("rpsychi")
+library("ie2misc")
+rowSd = function(matrix){
+  output = apply(matrix, 1, sd)
+  return(output)
+}
+rowMd = function(matrix){
+  output = apply(matrix, 1, madstat)
+  return(output)
+}
+
+```
+
+#Load data
+```{r Data_import}
+data = read.csv("../Input/data.csv", sep = ",", header = T, row.names=1) 
+attach(data)
+```
+
+#Graphical parameters
+```{r}
+mypalette = c("#9bbb59","#9bbb59", "#00b0f0", "#00b0f0", "#002060", "#002060")
+mypch = c(21, 22, 21, 22, 21, 22)
+
+data.start = c(1,21, 41, 61, 81, 101)
+data.end = c(20, 40, 60, 80, 100, 120)
+legend.graph = c("Surface 1", "Surface 2", "Shallow 1", "Shallow 2", "Deep 1", "Deep 2")
+```
+
+#BP and cytometry - Figure 1b
+```{r Cyto_BP}
+BP.sp = data[,4]/data[,3]
+BP.mat = matrix(na.omit(BP.sp), ncol = 6)
+BP.mat.ave = cbind(rowMeans(cbind(BP.mat[,1],BP.mat[,2])),
+                   rowMeans(cbind(BP.mat[,3],BP.mat[,4])),
+                   rowMeans(cbind(BP.mat[,5],BP.mat[,6])))
+BP.mat.sd = cbind(rowSd(cbind(BP.mat[,1],BP.mat[,2])),
+                   rowSd(cbind(BP.mat[,3],BP.mat[,4])),
+                   rowSd(cbind(BP.mat[,5],BP.mat[,6])))
+BP.vec.ave = c(BP.mat.ave)
+BP.vec.sd = c(BP.mat.sd)
+
+BP.mat.md = cbind(rowMd(cbind(BP.mat[,1],BP.mat[,2])),
+                   rowMd(cbind(BP.mat[,3],BP.mat[,4])),
+                   rowMd(cbind(BP.mat[,5],BP.mat[,6])))
+BP.vec.md = c(BP.mat.md)
+
+BP.mat = as.data.frame(BP.mat)
+
+colnames(BP.mat) = c("Epi1", "Epi2", "Meso1", "Meso2", "Bathy1", "Bathy2")
+rownames(BP.mat) = c("0", "4", "7", "16", "21", "31", "61", "92", "183", "274")
+BP.mat = cbind(rownames(BP.mat),BP.mat)
+
+library(tidyr)
+
+BP.long = pivot_longer(BP.mat, cols = 2:7, names_to = "Treatment", values_to = "Spe.BP")
+BP.long$Treatment.short = substring(BP.long$Treatment, 1,3)
+colnames(BP.long)[1] = "Time"
+
+#aov on all data
+BP.aov = aov(Spe.BP~Treatment.short, data=BP.long)
+BP.Tukey = TukeyHSD(BP.aov, "Treatment.short", conf.level = 0.05)
+
+{
+pdf("../Output/Fig1b.pdf",6 ,6)
+#png("../Output/Fig1b.png", res = 500, unit = "in", width = 6, height =  6)
+  par(mar = c(5, 5, 4, 0)+0.1)
+{
+  barcenter<-barplot(t(BP.mat.ave)*1000,
+          beside = TRUE,
+          col = mypalette[c(1,3,5)],
+          names.arg=c("0", "4", "7", "16", "21", "31", "61", "92", "183", "274"),
+          xlab = "Time (days)",
+          las = 1,
+          ylim = c(0,4),
+          ylab = expression(Specific~BP~(pmol~C~cell^-1~d^-1)))
+  arrows(barcenter, t(BP.mat.ave)*1000 - t(BP.mat.md)*1000,
+         barcenter, t(BP.mat.ave)*1000 + t(BP.mat.md)*1000,
+         angle = 90,
+         code = 3,
+         length = 0.05)
+
+}
+dev.off()
+}
+```
+
+#FT ICR-MS
+```{r }
+FTMS=read.csv("../Input/renormalized_crosstable_tresh.csv", sep=",", header=T, row.names=1)
+#Reorder Colomn to put them From T0 to Tfinal
+FTMS = FTMS[,c("Molecular.Formula","Theor_mz","DBE","HC","OC","NC","C","H","N","O","S","AI","AImod","NOSC","Count","Compound.category","Class","I3","G5","F3","F1","D4","G9","F6","E1","G8","G3","I1","G7","H1","E4","D8","F7","E7","D3","F4","D5","F2","G2","G6","H2","D6","D2","G4","E6","E8","H9","H3","D7","E9","H5","E5","H7","F9","H8","D1","E3","H4","I2","F8","E2","D9","F5","H6","G1")]
+
+colnames(FTMS) = c("Molecular.Formula","Theor_mz","DBE","HC","OC","NC","C","H","N","O","S","AI","AImod","NOSC","Count","Compound.category","Class","20m in situ","M1T4","M1T7","M1T15","M1T20","M1T30","M1T90","M2T0","M2T7","M2T15","M2T20","M2T30","M2T90","M3T0","M3T7","M3T15","M3T30","M4T0","M4T4","M4T7","M4T15","M4T20","M4T30","M4T90","M5T0","M5T4","M5T7","M5T15","M5T20","M5T30","M5T90","M6T0","M6T4","M6T7","M6T15","M6T20","M6T30","M6T90",
+                   "VOID1","VOID2","VOID3","VOID4","VOID5","VOID6","VOID7","VOID8","VOID9","VOID10")
+FTMS = cbind(FTMS[,c(1:17)], round(FTMS[,c(18:65)],digits = 8))
+# FTMS.summary = read.csv("../Input/summary_table_tresh.csv", sep=";", header=T)
+
+attach(FTMS)
+
+delta = as.data.frame(matrix(NA,nrow=length(FTMS[,1]),ncol=34))
+nom_col = c("OC","HC", "Theor_mz","M1T7","M1T15","M1T20","M1T30", "M1T90",
+                    "M2T7","M2T15","M2T20","M2T30", "M2T90",
+                    "M3T7","M3T15", "M3T30",
+                    "M4T4","M4T7","M4T15","M4T20","M4T30","M4T90",
+                    "M5T4","M5T7","M5T15","M5T20","M5T30", "M5T90",
+                    "M6T4","M6T7","M6T15","M6T20","M6T30","M6T90")
+colnames(delta) = nom_col
+#calculate deltas
+  delta$OC = OC
+  delta$HC = HC
+  delta$Theor_mz = Theor_mz
+  delta$M1T7 <- (M1T7 - M1T4)/M1T4
+  delta$M1T15 <- (M1T15 - M1T4)/M1T4 
+  delta$M1T20 <- (M1T20 - M1T4)/M1T4 
+  delta$M1T30 <- (M1T30 - M1T4)/M1T4 
+  delta$M1T90 <- (M1T90 - M1T4)/M1T4 
+  
+  delta$M2T7 <- (M2T7 - M2T0)/M2T0
+  delta$M2T15 <- (M2T15 - M2T0)/M2T0 
+  delta$M2T20 <- (M2T20 - M2T0)/M2T0 
+  delta$M2T30 <- (M2T30 - M2T0)/M2T0 
+  delta$M2T90 <- (M2T90 - M2T0)/M2T0 
+  
+  delta$M3T7 <- (M3T7 - M3T0)/M3T0
+  delta$M3T15 <- (M3T15 - M3T0)/M3T0 
+  delta$M3T30 <- (M3T30 - M3T0)/M3T0 
+  
+  delta$M4T4 <- (M4T4 - M4T0)/M4T0 
+  delta$M4T7 <- (M4T7 - M4T0)/M4T0
+  delta$M4T15 <- (M4T15 - M4T0)/M4T0 
+  delta$M4T20 <- (M4T20 - M4T0)/M4T0 
+  delta$M4T30 <- (M4T30 - M4T0)/M4T0 
+  delta$M4T90 <- (M4T90 - M4T0)/M4T0 
+  
+  delta$M5T4 <- (M5T4 - M5T0)/M5T0 
+  delta$M5T7 <- (M5T7 - M5T0)/M5T0
+  delta$M5T15 <- (M5T15 - M5T0)/M5T0 
+  delta$M5T20 <- (M5T20 - M5T0)/M5T0 
+  delta$M5T30 <- (M5T30 - M5T0)/M5T0 
+  delta$M5T90 <- (M5T90 - M5T0) /M5T0
+  
+  delta$M6T4 <- (M6T4 - M6T0)/M6T0 
+  delta$M6T7 <- (M6T7 - M6T0)/M6T0
+  delta$M6T15 <- (M6T15 - M6T0)/M6T0 
+  delta$M6T20 <- (M6T20 - M6T0)/M6T0 
+  delta$M6T30 <- (M6T30 - M6T0)/M6T0 
+  delta$M6T90 <- (M6T90 - M6T0) /M6T0
+
+#Change NAs for zeros
+for(j in 4:34)
+{
+  for(i in 1:6850)
+  {
+    if(is.na(delta[i,j] == -2)) delta[i,j]=0
+  }
+}
+  
+#Change values higher than 1 (often infinity when X/0) to 1
+for(j in 4:34)
+{
+  for(i in 1:6850)
+  {
+    if(delta[i,j] >= 2) delta[i,j]=2 #Old palette was >=1 set to 1
+  }
+}
+
+main.text = c("Epi92", "Meso92", "Bathy92")
+{
+  pdf("../Output/Fig2.pdf",13.3,4.66666)
+  # png("../Output/Fig2.png", 13.3, 4.66666, units = "in", res = 600)
+  par(mfrow=c(1,3))
+  par(mar = c(5, 5, 4, 0)+0.1)
+  par(oma=c( 0,0,0,5)) 
+  for(i in c(13, 22, 28))
+  {
+    if(i==13) j=1
+    if(i==22) j=2
+    if(i==28) j=3
+    #set the color ramp and apply the color ramp
+    delta=delta[order(delta[,i]),]
+    my.color.ramp.fct<-colorRamp(c("blue4","blue3","blue","turquoise4","turquoise2","white","yellow","orange","orange3","orangered","orangered3","red")) 
+    as.rgb.channels<-my.color.ramp.fct(decostand(delta[,i],method="range"))
+    Spear.color<-rgb(as.rgb.channels,maxColorValue=255) 
+  
+    #make some space in the right margin
+    plot(delta$OC[delta[,i] !=0],
+         delta$HC[delta[,i] !=0],
+         pch=21,
+         bg=Spear.color[delta[,i]!= 0],
+         xlab="O/C",
+         ylab="H/C",
+         xlim=c(0.05,1.05),
+         ylim=c(0.3,2),
+         lwd=0.75,
+         cex.main=1.8,
+         cex.lab=1.8,
+         cex.axis = 1.8,
+         main=bquote(Delta~.(main.text[j])),
+         las=1)
+        mtext(text = c("a","b","c")[j], side = 3, at = 0, cex = 1.4)
+
+ if(j==3)
+ {
+    par(oma=c( 0,0,0,2)) #resize your right margin to include the legend
+    image.plot(legend.only=TRUE, legend.line=2.7, zlim=range(c(delta[,i])), col=colorRampPalette(c("blue4","blue3","blue","turquoise4","turquoise2","white","yellow","orange","orange3","orangered","orangered3","red"))(256)) #plot color scale 
+ }
+  }
+  dev.off()
+}
+
+{
+main.text.S3 = c("Epi20", "Meso20", "Bathy20")
+
+  pdf("../Output/FigS2.pdf",13.3,4.66666)
+  # png("../Output/FigS2.png", 13.3, 4.66666, units = "in", res = 600)
+  par(mfrow=c(1,3))
+  par(mar = c(5, 5, 4, 0)+0.1)
+  par(oma=c( 0,0,0,5)) 
+  for(i in c(11, 20, 26))
+  {
+    if(i==11) j=1
+    if(i==20) j=2
+    if(i==26) j=3
+    #set the color ramp and apply the color ramp
+    delta=delta[order(delta[,i]),]
+    my.color.ramp.fct<-colorRamp(c("blue4","blue3","blue","turquoise4","turquoise2","white","yellow","orange","orange3","orangered","orangered3","red")) 
+    as.rgb.channels<-my.color.ramp.fct(decostand(delta[,i],method="range"))
+    Spear.color<-rgb(as.rgb.channels,maxColorValue=255) 
+  
+    #make some space in the right margin
+    plot(delta$OC[delta[,i] !=0],
+         delta$HC[delta[,i] !=0],
+         pch=21,
+         bg=Spear.color[delta[,i]!= 0],
+         xlab="O/C",
+         ylab="H/C",
+         xlim=c(0.05,1.05),
+         ylim=c(0.3,2),
+         lwd=0.75,
+         cex.main=1.8,
+         cex.lab=1.8,
+         cex.axis = 1.8,
+         main=bquote(Delta~.(main.text.S3[j])),
+         las=1)
+        mtext(text = c("a","b","c")[j], side = 3, at = 0, cex = 1.4)
+
+ if(j==3)
+ {
+    par(oma=c( 0,0,0,2)) #resize your right margin to include the legend
+    image.plot(legend.only=TRUE, legend.line=2.7, zlim=range(c(delta[,i])), col=colorRampPalette(c("blue4","blue3","blue","turquoise4","turquoise2","white","yellow","orange","orange3","orangered","orangered3","red"))(256)) #plot color scale 
+ }
+  }
+  dev.off()
+}
+# 
+# 
+# deltaT0 = as.data.frame(matrix(NA,nrow=length(FTMS[,1]),ncol=9))
+# nom_colT0 = c("OC","HC","Theor_mz", "Epi_MesoT0","Epi_BathyT0","Meso_BathyT0",
+#               "Epi_MesoT90","Epi_BathyT90","Meso_BathyT90")
+# colnames(deltaT0) = nom_colT0
+# #calculate deltas
+#   deltaT0$OC = OC
+#   deltaT0$HC = HC
+#   deltaT0$Theor_mz = Theor_mz
+#   deltaT0$Epi_MesoT0 <- (M4T0 - M2T0)/M2T0
+#   deltaT0$Epi_BathyT0 <- (M5T0 - M2T0)/M2T0
+#   deltaT0$Meso_BathyT0 <- (M5T0 - M4T0)/M4T0
+#   deltaT0$Epi_MesoT90 <- (M4T90 - M2T90)/M2T90
+#   deltaT0$Epi_BathyT90 <- (M5T90 - M2T90)/M2T90
+#   deltaT0$Meso_BathyT90 <- (M5T90 - M4T90)/M4T90
+#   for(j in 4:9)
+# {
+#   for(i in 1:6850)
+#   {
+#     if(is.na(deltaT0[i,j] == -2)) deltaT0[i,j]=0
+#   }
+# }
+#   
+# #Change values higher than 1 (often infinity when X/0) to 1
+# for(j in 4:9)
+# {
+#   for(i in 1:6850)
+#   {
+#     if(deltaT0[i,j] >= 1) deltaT0[i,j]=1
+#   }
+# }
+# {
+#   main.text = c("Epi-Meso", "Epi-Bathy", "Meso-Bathy","Epi-Meso", "Epi-Bathy", "Meso-Bathy")
+#   main.text.time = c("0", "92")
+# 
+#   pdf("../Output/FigS9.pdf",13.3,9.333333)
+#   #png("../Output/FigS9.png", 13.3, 9.333333, units = "in", res = 600)
+#   par(mfrow=c(2,3))
+#   par(mar = c(5, 5, 4, 0)+0.1)
+#   par(oma=c( 0,0,0,5)) 
+#   for(i in 4:9)
+#   {
+#     if(i==4) j=1
+#     if(i==5) j=2
+#     if(i==6) j=3
+#     if(i==7) j=4
+#     if(i==8) j=5
+#     if(i==9) j=6
+#     if(i==4) k=1
+#     if(i==7) k=2
+#     #set the color ramp and apply the color ramp
+#     deltaT0=deltaT0[order(deltaT0[,i]),]
+#     my.color.ramp.fct<-colorRamp(c("blue4","blue3","blue","turquoise4","turquoise2","white","yellow","orange","orange3","orangered","orangered3","red")) 
+#     as.rgb.channels<-my.color.ramp.fct(decostand(deltaT0[,i],method="range"))
+#     Spear.color<-rgb(as.rgb.channels,maxColorValue=255) 
+#   
+#     #make some space in the right margin
+#     plot(deltaT0$OC[deltaT0[,i] !=0],
+#          deltaT0$HC[deltaT0[,i] !=0],
+#          pch=21,
+#          bg=Spear.color[deltaT0[,i]!= 0],
+#          xlab="O/C",
+#          ylab="H/C",
+#          xlim=c(0.05,1.05),
+#          ylim=c(0.3,2),
+#          lwd=0.75,
+#          cex.main=1.8,
+#          cex.lab=1.8,
+#          cex.axis = 1.8,
+#          cex = 1.8,
+#          main=bquote(Delta~.(main.text[j])~T[.(main.text.time[k])]),
+#          las=1)
+#     
+#         mtext(text = c("A","b","c", "d", "e", "f")[j], side = 3, at = 0, cex = 1.4)
+# 
+#  if(j==6)
+#  {
+#     par(oma=c( 0,0,0,2)) #resize your right margin to include the legend
+#     image.plot(legend.only=TRUE, legend.line=2.7, zlim=range(c(deltaT0[,i])), col=colorRampPalette(c("blue4","blue3","blue","turquoise4","turquoise2","white","yellow","orange","orange3","orangered","orangered3","red"))(256)) #plot color scale 
+#  }
+#   }
+#   dev.off()
+# }
+  
+```
+
+#CRAM, NOSC and OC statistics + file export for Figure S3 - FDOM.Rmd
+```{r}
+FTMS=read.csv("../Input/renormalized_crosstable_tresh.csv", sep=",", header=T, row.names=1)
+#Reorder Colomn to put them From T0 to Tfinal
+FTMS = FTMS[,c("Molecular.Formula","Theor_mz","DBE","HC","OC","NC","C","H","N","O","S","AI","AImod","NOSC","Count","Compound.category","Class","I3","G5","F3","F1","D4","G9","F6","E1","G8","G3","I1","G7","H1","E4","D8","F7","E7","D3","F4","D5","F2","G2","G6","H2","D6","D2","G4","E6","E8","H9","H3","D7","E9","H5","E5","H7","F9","H8","D1","E3","H4","I2","F8","E2","D9","F5","H6","G1")]
+
+colnames(FTMS) = c("Molecular.Formula","Theor_mz","DBE","HC","OC","NC","C","H","N","O","S","AI","AImod","NOSC","Count","Compound.category","Class","20m in situ","M1T4","M1T7","M1T15","M1T20","M1T30","M1T90","M2T0","M2T7","M2T15","M2T20","M2T30","M2T90","M3T0","M3T7","M3T15","M3T30","M4T0","M4T4","M4T7","M4T15","M4T20","M4T30","M4T90","M5T0","M5T4","M5T7","M5T15","M5T20","M5T30","M5T90","M6T0","M6T4","M6T7","M6T15","M6T20","M6T30","M6T90",
+                   "VOID1","VOID2","VOID3","VOID4","VOID5","VOID6","VOID7","VOID8","VOID9","VOID10")
+FTMS = FTMS[,-grep(pattern = "VOID", x = colnames(FTMS))]
+# atom.C = as.numeric(FTMS$C) * FTMS[,c(18:65)]
+# atom.C.sum = colSums(atom.C)
+# atom.C.sum = atom.C.sum[-1]
+Trait = c("M1","M1","M1","M1","M1", "M1",
+                    "M2","M2","M2","M2","M2", "M2",
+                    "M3","M3","M3", "M3",
+                    "M4","M4","M4","M4","M4","M4","M4",
+                    "M5","M5","M5","M5","M5","M5", "M5",
+                    "M6","M6","M6","M6","M6","M6","M6")
+Time = c(4,7,15,20,30, 90,
+                    0,7,15,20,30, 90,
+                    0,7,15, 30,
+                    0,4,7,15,20,30,90,
+                    0,4,7,15,20,30, 90,
+                    0,4,7,15,20,30,90)
+
+mypalette = palette(c("black","black","red","red","green","green","blue","blue"))
+
+CRAM.function = function(data)
+{
+  DBE_C = data$DBE / data$C
+  DBE_H = data$DBE / data$H
+  DBE_O = data$DBE / data$O
+  
+  DBE_C1 = ifelse(0.3 <= DBE_C & DBE_C <= 0.68,1,0)
+  DBE_H1 = ifelse(0.2 <= DBE_H & DBE_H <= 0.95,1,0)
+  DBE_O1 = ifelse(0.77 <= DBE_O & DBE_O <= 1.75,1,0)
+  
+  CRAM = ifelse(DBE_C1 + DBE_H1 + DBE_O1 == 3 ,1,0)
+  return(CRAM)
+}
+
+CRAM_mean = function(data)
+{
+  output = vector("numeric", length = dim(data)[2])
+  for(i in 1:length(output))
+  {
+    #Order the dataframe to put all 0 at the end
+    data = data[order(abs(data[,i]), decreasing = TRUE),]
+    #Find rows that are not 0
+    row_sub = which(data[,i] !=0 )
+    #Subset the dataframe
+    data.temp = data[row_sub,i]
+    #Calculate the mean
+    output[i] = sum(data.temp)
+  }
+  return(output)
+}
+
+CRAM = CRAM.function(FTMS)
+CRAM.prop = as.numeric(CRAM) * FTMS[,c(19:55)]
+CRAM.prop.mean = CRAM_mean(CRAM.prop)
+CRAM.mean = data.frame(Trait,Time,CRAM.prop.mean)
+CRAM.prop.sum = colSums(CRAM.prop)
+CRAM.sum = data.frame(Trait,Time,CRAM.prop.sum)
+
+#Calculate the total number of CRAMs
+CRAM.number = ifelse(CRAM.prop>0, 1, 0)
+CRAM.number.sum = colSums(CRAM.number)
+CRAM.num.sum = data.frame(Trait,Time,CRAM.number.sum)
+
+CRAM_EPI_ini_num = CRAM.num.sum[Trait=="M2" & Time ==0,3]
+CRAM_MESO_ini_num = mean(c(CRAM.num.sum[Trait=="M3" & Time ==0,3],  CRAM.num.sum[Trait=="M4" & Time ==0,3]))
+CRAM_BATHY_ini_num = mean(c(CRAM.num.sum[Trait=="M5" & Time ==0,3], CRAM.num.sum[Trait=="M6" & Time ==0,3]))
+
+CRAM_EPI_15_num = mean(c(CRAM.num.sum[Trait=="M1" & Time == 15,3], CRAM.num.sum[Trait=="M2" & Time == 15,3]))
+CRAM_MESO_15_num = mean(c(CRAM.num.sum[Trait=="M3" & Time == 15,3], CRAM.num.sum[Trait=="M4" & Time == 15,3]))
+CRAM_BATHY_15_num = mean(c(CRAM.num.sum[Trait=="M5" & Time == 15,3], CRAM.num.sum[Trait=="M6" & Time == 15,3]))
+
+CRAM_EPI_20_num = mean(c(CRAM.num.sum[Trait=="M1" & Time == 20,3], CRAM.num.sum[Trait=="M2" & Time == 20,3]))
+CRAM_MESO_20_num = mean(c(CRAM.num.sum[Trait=="M3" & Time == 20,3], CRAM.num.sum[Trait=="M4" & Time == 20,3]))
+CRAM_BATHY_20_num = mean(c(CRAM.num.sum[Trait=="M5" & Time == 20,3], CRAM.num.sum[Trait=="M6" & Time == 20,3]))
+
+CRAM_EPI_30_num = mean(c(CRAM.num.sum[Trait=="M1" & Time == 30,3], CRAM.num.sum[Trait=="M2" & Time == 30,3]))
+CRAM_MESO_30_num = mean(c(CRAM.num.sum[Trait=="M3" & Time == 30,3], CRAM.num.sum[Trait=="M4" & Time == 30,3]))
+CRAM_BATHY_30_num = mean(c(CRAM.num.sum[Trait=="M5" & Time == 30,3], CRAM.num.sum[Trait=="M6" & Time == 30,3]))
+
+CRAM_EPI_90_num = mean(c(CRAM.num.sum[Trait=="M1" & Time == 90,3],CRAM.num.sum[Trait=="M2" & Time == 90,3])) #M1T90 looks off
+CRAM_MESO_90_num = CRAM.num.sum[Trait=="M4" & Time == 90,3]
+CRAM_BATHY_90_num = mean(c(CRAM.num.sum[Trait=="M5" & Time == 90,3], CRAM.num.sum[Trait=="M6" & Time == 90,3]))
+
+CRAM_changes_num = as.matrix(data.frame(Epi = c(CRAM_EPI_ini_num, CRAM_EPI_15_num, CRAM_EPI_20_num, CRAM_EPI_30_num, CRAM_EPI_90_num),
+                                 Meso = c(CRAM_MESO_ini_num, CRAM_MESO_15_num, CRAM_MESO_20_num, CRAM_MESO_30_num, CRAM_MESO_90_num),
+                                 Bathy = c(CRAM_BATHY_ini_num, CRAM_BATHY_15_num, CRAM_BATHY_20_num, CRAM_BATHY_30_num, CRAM_BATHY_90_num)))
+
+rownames(CRAM_changes_num) = c("Day 0" ,"Day 15", "Day 20", "Day 30", "Day 90")
+CRAM_changes_num
+#Calculate relative change based on these values
+CRAM_changes_num.rel = sweep(x = CRAM_changes_num,
+                         MARGIN = 2,
+                         STATS = CRAM_changes_num[1,],
+                         FUN = function(x,y) {(x-y)/y*100})
+
+
+mypalette = palette(c("black","black","red","red","green","green"))
+
+
+# Calculate the average of both treatments per incubation time
+CRAM_EPI_ini = CRAM.prop.sum[Trait=="M2" & Time ==0]
+CRAM_MESO_ini = mean(c(CRAM.prop.sum[Trait=="M3" & Time ==0],  CRAM.prop.sum[Trait=="M4" & Time ==0]))
+CRAM_BATHY_ini = mean(c(CRAM.prop.sum[Trait=="M5" & Time ==0], CRAM.prop.sum[Trait=="M6" & Time ==0]))
+
+CRAM_EPI_15 = mean(c(CRAM.prop.sum[Trait=="M1" & Time == 15], CRAM.prop.sum[Trait=="M2" & Time == 15]))
+CRAM_MESO_15 = mean(c(CRAM.prop.sum[Trait=="M3" & Time == 15], CRAM.prop.sum[Trait=="M4" & Time == 15]))
+CRAM_BATHY_15 = mean(c(CRAM.prop.sum[Trait=="M5" & Time == 15], CRAM.prop.sum[Trait=="M6" & Time == 15]))
+
+CRAM_EPI_30 = mean(c(CRAM.prop.sum[Trait=="M1" & Time == 30], CRAM.prop.sum[Trait=="M2" & Time == 30]))
+CRAM_MESO_30 = mean(c(CRAM.prop.sum[Trait=="M3" & Time == 30], CRAM.prop.sum[Trait=="M4" & Time == 30]))
+CRAM_BATHY_30 = mean(c(CRAM.prop.sum[Trait=="M5" & Time == 30], CRAM.prop.sum[Trait=="M6" & Time == 30]))
+
+CRAM_EPI_90 = mean(c(CRAM.prop.sum[Trait=="M1" & Time == 90], CRAM.prop.sum[Trait=="M2" & Time == 90]))
+CRAM_MESO_90 = CRAM.prop.sum[Trait=="M4" & Time == 90]
+CRAM_BATHY_90 = mean(c(CRAM.prop.sum[Trait=="M5" & Time == 90], CRAM.prop.sum[Trait=="M6" & Time == 90]))
+
+#Create a matrix with the above values and divide by 10 000 to have values {0,1}
+CRAM.abun = as.matrix(data.frame(Epi = c(CRAM_EPI_ini, CRAM_EPI_15, CRAM_EPI_30, CRAM_EPI_90),
+                                 Meso = c(CRAM_MESO_ini, CRAM_MESO_15, CRAM_MESO_30, CRAM_MESO_90),
+                                 Bathy = c(CRAM_BATHY_ini, CRAM_BATHY_15, CRAM_BATHY_30, CRAM_BATHY_90)))/10000
+#Add row names
+rownames(CRAM.abun) = c("Day 0","Day 15", "Day 30", "Day 90")
+CRAM.abun
+
+#Export CRAM.abun for a figure
+write.csv(x = CRAM.abun, file = "../Input/CRAM.abun.csv", fileEncoding = "UTF-8")
+
+#sd
+CRAM_EPI_ini.sd = 0
+CRAM_MESO_ini.sd = sd(c(CRAM.prop.sum[Trait=="M3" & Time ==0],  CRAM.prop.sum[Trait=="M4" & Time ==0]))
+CRAM_BATHY_ini.sd = sd(c(CRAM.prop.sum[Trait=="M5" & Time ==0], CRAM.prop.sum[Trait=="M6" & Time ==0]))
+
+CRAM_EPI_15.sd = sd(c(CRAM.prop.sum[Trait=="M1" & Time == 15], CRAM.prop.sum[Trait=="M2" & Time == 15]))
+CRAM_MESO_15.sd = sd(c(CRAM.prop.sum[Trait=="M3" & Time == 15], CRAM.prop.sum[Trait=="M4" & Time == 15]))
+CRAM_BATHY_15.sd = sd(c(CRAM.prop.sum[Trait=="M5" & Time == 15], CRAM.prop.sum[Trait=="M6" & Time == 15]))
+
+CRAM_EPI_30.sd = sd(c(CRAM.prop.sum[Trait=="M1" & Time == 30], CRAM.prop.sum[Trait=="M2" & Time == 30]))
+CRAM_MESO_30.sd = sd(c(CRAM.prop.sum[Trait=="M3" & Time == 30], CRAM.prop.sum[Trait=="M4" & Time == 30]))
+CRAM_BATHY_30.sd = sd(c(CRAM.prop.sum[Trait=="M5" & Time == 30], CRAM.prop.sum[Trait=="M6" & Time == 30]))
+
+CRAM_EPI_90.sd = sd(c(CRAM.prop.sum[Trait=="M1" & Time == 90], CRAM.prop.sum[Trait=="M2" & Time == 90]))
+CRAM_MESO_90.sd = 0
+CRAM_BATHY_90.sd = sd(c(CRAM.prop.sum[Trait=="M5" & Time == 90], CRAM.prop.sum[Trait=="M6" & Time == 90]))
+
+#Create a matrix with the above values and divide by 10 000 to have values {0,1}
+CRAM.abun.sd = as.matrix(data.frame(Epi = c(CRAM_EPI_ini.sd, CRAM_EPI_15.sd, CRAM_EPI_30.sd, CRAM_EPI_90.sd),
+                                 Meso = c(CRAM_MESO_ini.sd, CRAM_MESO_15.sd, CRAM_MESO_30.sd, CRAM_MESO_90.sd),
+                                 Bathy = c(CRAM_BATHY_ini.sd, CRAM_BATHY_15.sd, CRAM_BATHY_30.sd, CRAM_BATHY_90.sd)))/10000
+
+#mean absolute deviation
+CRAM_EPI_ini.md = 0
+CRAM_MESO_ini.md = madstat(c(CRAM.prop.sum[Trait=="M3" & Time ==0],  CRAM.prop.sum[Trait=="M4" & Time ==0]))
+CRAM_BATHY_ini.md = madstat(c(CRAM.prop.sum[Trait=="M5" & Time ==0], CRAM.prop.sum[Trait=="M6" & Time ==0]))
+
+CRAM_EPI_15.md = madstat(c(CRAM.prop.sum[Trait=="M1" & Time == 15], CRAM.prop.sum[Trait=="M2" & Time == 15]))
+CRAM_MESO_15.md = madstat(c(CRAM.prop.sum[Trait=="M3" & Time == 15], CRAM.prop.sum[Trait=="M4" & Time == 15]))
+CRAM_BATHY_15.md = madstat(c(CRAM.prop.sum[Trait=="M5" & Time == 15], CRAM.prop.sum[Trait=="M6" & Time == 15]))
+
+CRAM_EPI_30.md = madstat(c(CRAM.prop.sum[Trait=="M1" & Time == 30], CRAM.prop.sum[Trait=="M2" & Time == 30]))
+CRAM_MESO_30.md = madstat(c(CRAM.prop.sum[Trait=="M3" & Time == 30], CRAM.prop.sum[Trait=="M4" & Time == 30]))
+CRAM_BATHY_30.md = madstat(c(CRAM.prop.sum[Trait=="M5" & Time == 30], CRAM.prop.sum[Trait=="M6" & Time == 30]))
+
+CRAM_EPI_90.md = madstat(c(CRAM.prop.sum[Trait=="M1" & Time == 90], CRAM.prop.sum[Trait=="M2" & Time == 90]))
+CRAM_MESO_90.md = 0
+CRAM_BATHY_90.md = madstat(c(CRAM.prop.sum[Trait=="M5" & Time == 90], CRAM.prop.sum[Trait=="M6" & Time == 90]))
+
+#Create a matrix with the above values and divide by 10 000 to have values {0,1}
+CRAM.abun.md = as.matrix(data.frame(Epi = c(CRAM_EPI_ini.md, CRAM_EPI_15.md, CRAM_EPI_30.md, CRAM_EPI_90.md),
+                                 Meso = c(CRAM_MESO_ini.md, CRAM_MESO_15.md, CRAM_MESO_30.md, CRAM_MESO_90.md),
+                                 Bathy = c(CRAM_BATHY_ini.md, CRAM_BATHY_15.md, CRAM_BATHY_30.md, CRAM_BATHY_90.md)))/10000
+
+#Export CRAM.abun for a figure
+write.csv(x = CRAM.abun.md, file = "../Input/CRAM.abun.md.csv", fileEncoding = "UTF-8")
+
+#Add row names
+rownames(CRAM.abun.sd) = c("Day 0","Day 15", "Day 30", "Day 90")
+CRAM.abun.sd
+
+#Calculate relative change based on these values
+CRAM.abun.rel = sweep(x = CRAM.abun,
+                         MARGIN = 2,
+                         STATS = CRAM.abun[1,],
+                         FUN = function(x,y) {(x-y)/y*100})
+
+rownames(CRAM.abun.rel) = c("Day 0","Day 15", "Day 30", "Day 90")
+CRAM.abun.rel
+
+CRAM.abun.mean.test = c(CRAM.abun[1,1], CRAM.abun[1,2], CRAM.abun[1,3], CRAM.abun[4,1] ,CRAM.abun[4,2], CRAM.abun[4,3])
+CRAM.abun.sd.test = c(CRAM.abun.sd[1,1], CRAM.abun.sd[1,2], CRAM.abun.sd[1,3], CRAM.abun.sd[4,1] ,CRAM.abun.sd[4,2], CRAM.abun.sd[4,3])
+
+CRAM.mat = CRAM.mean
+colnames(CRAM.mat)[3]="CRAM"
+CRAM.mat[,1]=as.character(CRAM.mat[,1])
+CRAM.mat[CRAM.mat[,1]=="M1" | CRAM.mat[,1]=="M2",1]="Epi"
+CRAM.mat[CRAM.mat[,1]=="M3" | CRAM.mat[,1]=="M4",1]="Meso"
+CRAM.mat[CRAM.mat[,1]=="M5" | CRAM.mat[,1]=="M6",1]="Bathy"
+CRAM.mat = CRAM.mat[-c(38:47),]
+CRAM.mat[,2] = as.character(CRAM.mat[,2])
+
+CRAM.epi.aov = aov(CRAM ~ Time, data = CRAM.mat[CRAM.mat$Trait=="Epi"&  CRAM.mat$Time == 0 | CRAM.mat$Trait=="Epi"& CRAM.mat$Time == 90 | CRAM.mat$Trait=="Epi"& CRAM.mat$Time==30,])
+CRAM.epi.Tukey = TukeyHSD(CRAM.epi.aov, "Time") #Not significant
+
+CRAM.Meso.aov = aov(CRAM ~ Time, data = CRAM.mat[CRAM.mat$Trait=="Meso"&  CRAM.mat$Time == 0 | CRAM.mat$Trait=="Meso"& CRAM.mat$Time == 90 | CRAM.mat$Trait=="Meso"& CRAM.mat$Time==30,])
+CRAM.Meso.Tukey = TukeyHSD(CRAM.Meso.aov, "Time") #Time 0 vs 90 = 0.055, 0 vs 30 = 0.10
+
+CRAM.Bathy.aov = aov(CRAM ~ Time, data = CRAM.mat[CRAM.mat$Trait=="Bathy"&  CRAM.mat$Time == 0 | CRAM.mat$Trait=="Bathy"& CRAM.mat$Time == 90 | CRAM.mat$Trait=="Bathy"& CRAM.mat$Time==30,])
+CRAM.Bathy.Tukey = TukeyHSD(CRAM.Bathy.aov, "Time") #Time 0 vs 90 = 0.02, 0 vs 30 = 0.069
+
+
+CRAM_EPI_ini = CRAM.prop.mean[Trait=="M2" & Time ==0]
+CRAM_MESO_ini = mean(c(CRAM.prop.mean[Trait=="M3" & Time ==0],  CRAM.prop.mean[Trait=="M4" & Time ==0]))
+CRAM_BATHY_ini = mean(c(CRAM.prop.mean[Trait=="M5" & Time ==0], CRAM.prop.mean[Trait=="M6" & Time ==0]))
+
+CRAM_EPI_15 = mean(c(CRAM.prop.mean[Trait=="M1" & Time == 15], CRAM.prop.mean[Trait=="M2" & Time == 15]))
+CRAM_MESO_15 = mean(c(CRAM.prop.mean[Trait=="M3" & Time == 15], CRAM.prop.mean[Trait=="M4" & Time == 15]))
+CRAM_BATHY_15 = mean(c(CRAM.prop.mean[Trait=="M5" & Time == 15], CRAM.prop.mean[Trait=="M6" & Time == 15]))
+
+CRAM_EPI_30 = mean(c(CRAM.prop.mean[Trait=="M1" & Time == 30], CRAM.prop.mean[Trait=="M2" & Time == 30]))
+CRAM_MESO_30 = mean(c(CRAM.prop.mean[Trait=="M3" & Time == 30], CRAM.prop.mean[Trait=="M4" & Time == 30]))
+CRAM_BATHY_30 = mean(c(CRAM.prop.mean[Trait=="M5" & Time == 30], CRAM.prop.mean[Trait=="M6" & Time == 30]))
+
+CRAM_EPI_90 = mean(c(CRAM.prop.mean[Trait=="M1" & Time == 90], CRAM.prop.mean[Trait=="M2" & Time == 90]))
+CRAM_MESO_90 = CRAM.prop.mean[Trait=="M4" & Time == 90]
+CRAM_BATHY_90 = mean(c(CRAM.prop.mean[Trait=="M5" & Time == 90], CRAM.prop.mean[Trait=="M6" & Time == 90]))
+
+CRAM_changes = as.matrix(data.frame(Epi = c(CRAM_EPI_ini, CRAM_EPI_15, CRAM_EPI_30, CRAM_EPI_90),
+                                 Meso = c(CRAM_MESO_ini, CRAM_MESO_15, CRAM_MESO_30, CRAM_MESO_90),
+                                 Bathy = c(CRAM_BATHY_ini, CRAM_BATHY_15, CRAM_BATHY_30, CRAM_BATHY_90)))
+rownames(CRAM_changes) = c("Day 0" ,"Day 15", "Day 30", "Day 90")
+CRAM_changes
+
+#SD
+CRAM_EPI_ini.sd = 0
+CRAM_MESO_ini.sd = sd(c(CRAM.prop.mean[Trait=="M3" & Time ==0],  CRAM.prop.mean[Trait=="M4" & Time ==0]))
+CRAM_BATHY_ini.sd = sd(c(CRAM.prop.mean[Trait=="M5" & Time ==0], CRAM.prop.mean[Trait=="M6" & Time ==0]))
+
+CRAM_EPI_15.sd = sd(c(CRAM.prop.mean[Trait=="M1" & Time == 15], CRAM.prop.mean[Trait=="M2" & Time == 15]))
+CRAM_MESO_15.sd = sd(c(CRAM.prop.mean[Trait=="M3" & Time == 15], CRAM.prop.mean[Trait=="M4" & Time == 15]))
+CRAM_BATHY_15.sd = sd(c(CRAM.prop.mean[Trait=="M5" & Time == 15], CRAM.prop.mean[Trait=="M6" & Time == 15]))
+
+CRAM_EPI_30.sd = sd(c(CRAM.prop.mean[Trait=="M1" & Time == 30], CRAM.prop.mean[Trait=="M2" & Time == 30]))
+CRAM_MESO_30.sd = sd(c(CRAM.prop.mean[Trait=="M3" & Time == 30], CRAM.prop.mean[Trait=="M4" & Time == 30]))
+CRAM_BATHY_30.sd = sd(c(CRAM.prop.mean[Trait=="M5" & Time == 30], CRAM.prop.mean[Trait=="M6" & Time == 30]))
+
+CRAM_EPI_90.sd = sd(c(CRAM.prop.mean[Trait=="M1" & Time == 90], CRAM.prop.mean[Trait=="M2" & Time == 90]))
+CRAM_MESO_90.sd = 0
+CRAM_BATHY_90.sd = sd(c(CRAM.prop.mean[Trait=="M5" & Time == 90], CRAM.prop.mean[Trait=="M6" & Time == 90]))
+
+CRAM_changes.sd = as.matrix(data.frame(Epi = c(CRAM_EPI_ini.sd, CRAM_EPI_15.sd, CRAM_EPI_30.sd, CRAM_EPI_90.sd),
+                                 Meso = c(CRAM_MESO_ini.sd, CRAM_MESO_15.sd, CRAM_MESO_30.sd, CRAM_MESO_90.sd),
+                                 Bathy = c(CRAM_BATHY_ini.sd, CRAM_BATHY_15.sd, CRAM_BATHY_30.sd, CRAM_BATHY_90.sd)))
+rownames(CRAM_changes.sd) = c("Day 0" ,"Day 15", "Day 30", "Day 90")
+CRAM_changes.sd
+
+#Mean absolute deviation
+CRAM_EPI_ini.md = 0
+CRAM_MESO_ini.md = madstat(c(CRAM.prop.mean[Trait=="M3" & Time ==0],  CRAM.prop.mean[Trait=="M4" & Time ==0]))
+CRAM_BATHY_ini.md = madstat(c(CRAM.prop.mean[Trait=="M5" & Time ==0], CRAM.prop.mean[Trait=="M6" & Time ==0]))
+
+CRAM_EPI_15.md = madstat(c(CRAM.prop.mean[Trait=="M1" & Time == 15], CRAM.prop.mean[Trait=="M2" & Time == 15]))
+CRAM_MESO_15.md = madstat(c(CRAM.prop.mean[Trait=="M3" & Time == 15], CRAM.prop.mean[Trait=="M4" & Time == 15]))
+CRAM_BATHY_15.md = madstat(c(CRAM.prop.mean[Trait=="M5" & Time == 15], CRAM.prop.mean[Trait=="M6" & Time == 15]))
+
+CRAM_EPI_30.md = madstat(c(CRAM.prop.mean[Trait=="M1" & Time == 30], CRAM.prop.mean[Trait=="M2" & Time == 30]))
+CRAM_MESO_30.md = madstat(c(CRAM.prop.mean[Trait=="M3" & Time == 30], CRAM.prop.mean[Trait=="M4" & Time == 30]))
+CRAM_BATHY_30.md = madstat(c(CRAM.prop.mean[Trait=="M5" & Time == 30], CRAM.prop.mean[Trait=="M6" & Time == 30]))
+
+CRAM_EPI_90.md = madstat(c(CRAM.prop.mean[Trait=="M1" & Time == 90], CRAM.prop.mean[Trait=="M2" & Time == 90]))
+CRAM_MESO_90.md = 0
+CRAM_BATHY_90.md = madstat(c(CRAM.prop.mean[Trait=="M5" & Time == 90], CRAM.prop.mean[Trait=="M6" & Time == 90]))
+
+CRAM_changes.md = as.matrix(data.frame(Epi = c(CRAM_EPI_ini.md, CRAM_EPI_15.md, CRAM_EPI_30.md, CRAM_EPI_90.md),
+                                 Meso = c(CRAM_MESO_ini.md, CRAM_MESO_15.md, CRAM_MESO_30.md, CRAM_MESO_90.md),
+                                 Bathy = c(CRAM_BATHY_ini.md, CRAM_BATHY_15.md, CRAM_BATHY_30.md, CRAM_BATHY_90.md)))
+rownames(CRAM_changes.md) = c("Day 0" ,"Day 15", "Day 30", "Day 90")
+CRAM_changes.md
+
+CRAM_changes = as.matrix(data.frame(Epi = c(CRAM_EPI_ini, CRAM_EPI_15, CRAM_EPI_30, CRAM_EPI_90),
+                                 Meso = c(CRAM_MESO_ini, CRAM_MESO_15, CRAM_MESO_30, CRAM_MESO_90),
+                                 Bathy = c(CRAM_BATHY_ini, CRAM_BATHY_15, CRAM_BATHY_30, CRAM_BATHY_90)))
+rownames(CRAM_changes) = c("Day 0" ,"Day 15", "Day 30", "Day 90")
+CRAM_changes
+
+#####
+
+#NOSC
+#####
+NOSC.prop = FTMS$NOSC * FTMS[,c(19:55)]
+
+NOSC_mean = function(data)
+{
+  output = vector("numeric", length = dim(data)[2])
+  for(i in 1:length(output))
+  {
+    #Order the dataframe to put all 0 at the end
+    data = data[order(abs(data[,i]), decreasing = TRUE),]
+    #Find rows that are not 0
+    row_sub = which(data[,i] !=0 )
+    #Subset the dataframe
+    data.temp = data[row_sub,i]
+    #Calculate the mean
+    output[i] = mean(data.temp)
+  }
+  return(output)
+}
+NOSC.prop.mean = NOSC_mean(NOSC.prop)
+NOSC.mean = data.frame(Trait,Time,NOSC.prop.mean)
+
+NOSC_EPI_ini = NOSC.prop.mean[Trait=="M2" & Time ==0]
+NOSC_MESO_ini = mean(c(NOSC.prop.mean[Trait=="M3" & Time ==0],  NOSC.prop.mean[Trait=="M4" & Time ==0]))
+NOSC_BATHY_ini = mean(c(NOSC.prop.mean[Trait=="M5" & Time ==0], NOSC.prop.mean[Trait=="M6" & Time ==0]))
+
+NOSC_EPI_15 = mean(c(NOSC.prop.mean[Trait=="M1" & Time == 15], NOSC.prop.mean[Trait=="M2" & Time == 15]))
+NOSC_MESO_15 = mean(c(NOSC.prop.mean[Trait=="M3" & Time == 15], NOSC.prop.mean[Trait=="M4" & Time == 15]))
+NOSC_BATHY_15 = mean(c(NOSC.prop.mean[Trait=="M5" & Time == 15], NOSC.prop.mean[Trait=="M6" & Time == 15]))
+
+NOSC_EPI_30 = mean(c(NOSC.prop.mean[Trait=="M1" & Time == 30], NOSC.prop.mean[Trait=="M2" & Time == 30]))
+NOSC_MESO_30 = mean(c(NOSC.prop.mean[Trait=="M3" & Time == 30], NOSC.prop.mean[Trait=="M4" & Time == 30]))
+NOSC_BATHY_30 = mean(c(NOSC.prop.mean[Trait=="M5" & Time == 30], NOSC.prop.mean[Trait=="M6" & Time == 30]))
+
+NOSC_EPI_90 = mean(c(NOSC.prop.mean[Trait=="M1" & Time == 90], NOSC.prop.mean[Trait=="M2" & Time == 90]))
+NOSC_MESO_90 = NOSC.prop.mean[Trait=="M4" & Time == 90]
+NOSC_BATHY_90 = mean(c(NOSC.prop.mean[Trait=="M5" & Time == 90], NOSC.prop.mean[Trait=="M6" & Time == 90]))
+
+NOSC_changes = as.matrix(data.frame(Epi = c(NOSC_EPI_ini, NOSC_EPI_15, NOSC_EPI_30, NOSC_EPI_90),
+                                 Meso = c(NOSC_MESO_ini, NOSC_MESO_15, NOSC_MESO_30, NOSC_MESO_90),
+                                 Bathy = c(NOSC_BATHY_ini, NOSC_BATHY_15, NOSC_BATHY_30, NOSC_BATHY_90)))
+rownames(NOSC_changes) = c("Day 0" ,"Day 15", "Day 30", "Day 90")
+NOSC_changes
+
+#Export NOSC_changes for a figure
+write.csv(x = NOSC_changes, file = "../Input/NOSC_changes.csv", fileEncoding = "UTF-8")
+
+#SD
+NOSC_EPI_ini.sd = 0
+NOSC_MESO_ini.sd = sd(c(NOSC.prop.mean[Trait=="M3" & Time ==0],  NOSC.prop.mean[Trait=="M4" & Time ==0]))
+NOSC_BATHY_ini.sd = sd(c(NOSC.prop.mean[Trait=="M5" & Time ==0], NOSC.prop.mean[Trait=="M6" & Time ==0]))
+
+NOSC_EPI_15.sd = sd(c(NOSC.prop.mean[Trait=="M1" & Time == 15], NOSC.prop.mean[Trait=="M2" & Time == 15]))
+NOSC_MESO_15.sd = sd(c(NOSC.prop.mean[Trait=="M3" & Time == 15], NOSC.prop.mean[Trait=="M4" & Time == 15]))
+NOSC_BATHY_15.sd = sd(c(NOSC.prop.mean[Trait=="M5" & Time == 15], NOSC.prop.mean[Trait=="M6" & Time == 15]))
+
+NOSC_EPI_30.sd = sd(c(NOSC.prop.mean[Trait=="M1" & Time == 30], NOSC.prop.mean[Trait=="M2" & Time == 30]))
+NOSC_MESO_30.sd = sd(c(NOSC.prop.mean[Trait=="M3" & Time == 30], NOSC.prop.mean[Trait=="M4" & Time == 30]))
+NOSC_BATHY_30.sd = sd(c(NOSC.prop.mean[Trait=="M5" & Time == 30], NOSC.prop.mean[Trait=="M6" & Time == 30]))
+
+NOSC_EPI_90.sd = sd(c(NOSC.prop.mean[Trait=="M1" & Time == 90], NOSC.prop.mean[Trait=="M2" & Time == 90]))
+NOSC_MESO_90.sd = 0
+NOSC_BATHY_90.sd = sd(c(NOSC.prop.mean[Trait=="M5" & Time == 90], NOSC.prop.mean[Trait=="M6" & Time == 90]))
+
+NOSC_changes.sd = as.matrix(data.frame(Epi = c(NOSC_EPI_ini.sd, NOSC_EPI_15.sd, NOSC_EPI_30.sd, NOSC_EPI_90.sd),
+                                 Meso = c(NOSC_MESO_ini.sd, NOSC_MESO_15.sd, NOSC_MESO_30.sd, NOSC_MESO_90.sd),
+                                 Bathy = c(NOSC_BATHY_ini.sd, NOSC_BATHY_15.sd, NOSC_BATHY_30.sd, NOSC_BATHY_90.sd)))
+rownames(NOSC_changes.sd) = c("Day 0" ,"Day 15", "Day 30", "Day 90")
+NOSC_changes.sd
+
+#Mean absolute deviation
+NOSC_EPI_ini.md = 0
+NOSC_MESO_ini.md = madstat(c(NOSC.prop.mean[Trait=="M3" & Time ==0],  NOSC.prop.mean[Trait=="M4" & Time ==0]))
+NOSC_BATHY_ini.md = madstat(c(NOSC.prop.mean[Trait=="M5" & Time ==0], NOSC.prop.mean[Trait=="M6" & Time ==0]))
+
+NOSC_EPI_15.md = madstat(c(NOSC.prop.mean[Trait=="M1" & Time == 15], NOSC.prop.mean[Trait=="M2" & Time == 15]))
+NOSC_MESO_15.md = madstat(c(NOSC.prop.mean[Trait=="M3" & Time == 15], NOSC.prop.mean[Trait=="M4" & Time == 15]))
+NOSC_BATHY_15.md = madstat(c(NOSC.prop.mean[Trait=="M5" & Time == 15], NOSC.prop.mean[Trait=="M6" & Time == 15]))
+
+NOSC_EPI_30.md = madstat(c(NOSC.prop.mean[Trait=="M1" & Time == 30], NOSC.prop.mean[Trait=="M2" & Time == 30]))
+NOSC_MESO_30.md = madstat(c(NOSC.prop.mean[Trait=="M3" & Time == 30], NOSC.prop.mean[Trait=="M4" & Time == 30]))
+NOSC_BATHY_30.md = madstat(c(NOSC.prop.mean[Trait=="M5" & Time == 30], NOSC.prop.mean[Trait=="M6" & Time == 30]))
+
+NOSC_EPI_90.md = madstat(c(NOSC.prop.mean[Trait=="M1" & Time == 90], NOSC.prop.mean[Trait=="M2" & Time == 90]))
+NOSC_MESO_90.md = 0
+NOSC_BATHY_90.md = madstat(c(NOSC.prop.mean[Trait=="M5" & Time == 90], NOSC.prop.mean[Trait=="M6" & Time == 90]))
+
+NOSC_changes.md = as.matrix(data.frame(Epi = c(NOSC_EPI_ini.md, NOSC_EPI_15.md, NOSC_EPI_30.md, NOSC_EPI_90.md),
+                                 Meso = c(NOSC_MESO_ini.md, NOSC_MESO_15.md, NOSC_MESO_30.md, NOSC_MESO_90.md),
+                                 Bathy = c(NOSC_BATHY_ini.md, NOSC_BATHY_15.md, NOSC_BATHY_30.md, NOSC_BATHY_90.md)))
+rownames(NOSC_changes.md) = c("Day 0" ,"Day 15", "Day 30", "Day 90")
+NOSC_changes.md
+
+#Export NOSC_changes.md for a figure
+write.csv(x = NOSC_changes.md, file = "../Input/NOSC_changes.md.csv", fileEncoding = "UTF-8")
+
+
+
+
+DeltaNOSC = as.matrix(data.frame(Epi = c((NOSC_EPI_15 - NOSC_EPI_ini)/NOSC_EPI_ini *100,
+                                         (NOSC_EPI_30 - NOSC_EPI_ini)/NOSC_EPI_ini *100,
+                                         (NOSC_EPI_90 - NOSC_EPI_ini)/NOSC_EPI_ini *100),
+                                 Meso = c((NOSC_MESO_15 - NOSC_MESO_ini)/NOSC_MESO_ini *100,
+                                          (NOSC_MESO_30 - NOSC_MESO_ini)/NOSC_MESO_ini *100,
+                                          (NOSC_MESO_90 - NOSC_MESO_ini)/NOSC_MESO_ini *100),
+                                 Bathy = c((NOSC_BATHY_15 - NOSC_BATHY_ini)/NOSC_BATHY_ini *100,
+                                          (NOSC_BATHY_30 - NOSC_BATHY_ini)/NOSC_BATHY_ini *100,
+                                          (NOSC_BATHY_90 - NOSC_BATHY_ini)/NOSC_BATHY_ini *100)))
+         
+             
+rownames(DeltaNOSC) = c("Day 15", "Day 30", "Day 90")
+DeltaNOSC
+
+###########################AOV on NOSC###########################
+NOSC.mat = NOSC.mean[-c(38:47),]
+colnames(NOSC.mat)[3]="NOSC"
+NOSC.mat[,1]=as.character(NOSC.mat[,1])
+NOSC.mat[NOSC.mat[,1]=="M1" | NOSC.mat[,1]=="M2",1]="Epi"
+NOSC.mat[NOSC.mat[,1]=="M3" | NOSC.mat[,1]=="M4",1]="Meso"
+NOSC.mat[NOSC.mat[,1]=="M5" | NOSC.mat[,1]=="M6",1]="Bathy"
+NOSC.mat[,2] = as.character(NOSC.mat[,2])
+
+NOSC.time.aov = aov(NOSC ~ Time, data = NOSC.mat[NOSC.mat$Time == 0 | NOSC.mat$Time == 90 | NOSC.mat$Time==30,])
+NOSC.time.Tukey = TukeyHSD(NOSC.time.aov, "Time") #Not significant when all combined
+
+NOSC.epi.aov = aov(NOSC ~ Time, data = NOSC.mat[NOSC.mat$Trait=="Epi"&  NOSC.mat$Time == 0 | NOSC.mat$Trait=="Epi"& NOSC.mat$Time == 90 | NOSC.mat$Trait=="Epi"& NOSC.mat$Time==30,])
+NOSC.epi.Tukey = TukeyHSD(NOSC.epi.aov, "Time") #Not significant
+
+NOSC.Meso.aov = aov(NOSC ~ Time, data = NOSC.mat[NOSC.mat$Trait=="Meso"&  NOSC.mat$Time == 0 | NOSC.mat$Trait=="Meso"& NOSC.mat$Time == 90 | NOSC.mat$Trait=="Meso"& NOSC.mat$Time==30,])
+NOSC.Meso.Tukey = TukeyHSD(NOSC.Meso.aov, "Time") #Not significant
+
+NOSC.Bathy.aov = aov(NOSC ~ Time, data = NOSC.mat[NOSC.mat$Trait=="Bathy"&  NOSC.mat$Time == 0 | NOSC.mat$Trait=="Bathy"& NOSC.mat$Time == 90 | NOSC.mat$Trait=="Bathy"& NOSC.mat$Time==30,])
+NOSC.Bathy.Tukey = TukeyHSD(NOSC.Bathy.aov, "Time") #Significant
+
+#Evolution of OC ratio
+OC.prop = FTMS$OC * FTMS[,c(19:55)] / 10000
+
+#AOV test
+OC.aov.mat <- OC.prop[,c(7,6,12,13,17,23,24,31,30,37,5,11,16,22,29,36)]
+OC.aov.mat.sum = colSums(OC.aov.mat)
+OC.aov.mat.sd = apply(OC.aov.mat, 2, function(x) sd(x[x!=0]))
+OC.aov.mat.sum.cat = c(OC.aov.mat.sum[1],
+                       mean(c(OC.aov.mat.sum[2],OC.aov.mat.sum[3])),
+                       mean(c(OC.aov.mat.sum[4],OC.aov.mat.sum[5])),
+                       OC.aov.mat.sum[6],
+                       mean(c(OC.aov.mat.sum[7],OC.aov.mat.sum[8])),
+                       mean(c(OC.aov.mat.sum[9],OC.aov.mat.sum[10])))
+
+OC.aov.mat.sd.cat = c(OC.aov.mat.sd[1],
+                       OC.aov.mat.sd[2]+OC.aov.mat.sd[3],
+                       OC.aov.mat.sd[4]+OC.aov.mat.sd[5],
+                       OC.aov.mat.sd[6],
+                       OC.aov.mat.sd[7]+OC.aov.mat.sd[8],
+                       OC.aov.mat.sd[9]+OC.aov.mat.sd[10])
+
+OC.aov.mat.length = c(length(OC.aov.mat[OC.aov.mat[,1]!=0,1]),
+                       length(OC.aov.mat[OC.aov.mat[,2]!=0,2]) +
+                        length(OC.aov.mat[OC.aov.mat[,3]!=0,3]),
+                       length(OC.aov.mat[OC.aov.mat[,4]!=0,4]) +
+                        length(OC.aov.mat[OC.aov.mat[,5]!=0,5]),
+                       length(OC.aov.mat[OC.aov.mat[,6]!=0,6]),
+                       length(OC.aov.mat[OC.aov.mat[,7]!=0,7])+
+                        length(OC.aov.mat[OC.aov.mat[,8]!=0,8]),
+                       length(OC.aov.mat[OC.aov.mat[,9]!=0,9])+
+                        length(OC.aov.mat[OC.aov.mat[,10]!=0,10]))
+
+names(OC.aov.mat.length) <- names(OC.aov.mat.sum.cat) <- names(OC.aov.mat.sd.cat) <- c("Epi0", "Epi90", "Meso0", "Meso90", "Bathy0", "Bathy90")
+
+
+
+#Test with tidyr
+library(tidyr)
+OC.aov.mat.epiT0 <-OC.aov.mat[,1]
+OC.aov.mat.epiT30 <- apply(OC.aov.mat[,c(11,12)],1,mean)
+OC.aov.mat.epiT90 <- apply(OC.aov.mat[,c(2,3)],1,mean)
+OC.aov.mat.MesoT0 <- apply(OC.aov.mat[,c(4,5)],1,mean)
+OC.aov.mat.MesoT30 <- apply(OC.aov.mat[,c(13,14)],1,mean)
+OC.aov.mat.MesoT90 <- OC.aov.mat[,6]
+OC.aov.mat.BathyT0 <- apply(OC.aov.mat[,c(7,8)],1,mean)
+OC.aov.mat.BathyT30 <- apply(OC.aov.mat[,c(15,16)],1,mean)
+OC.aov.mat.BathyT90 <- apply(OC.aov.mat[,c(9,10)],1,mean)
+
+OC.aov.mat.T0 = as.data.frame(cbind(OC.aov.mat.epiT0, OC.aov.mat.MesoT0, OC.aov.mat.BathyT0))
+colnames(OC.aov.mat.T0) <- c("EpiT0", "MesoT0", "BathyT0")
+OC.aov.mat.T30 = as.data.frame(cbind(OC.aov.mat.epiT30, OC.aov.mat.MesoT30, OC.aov.mat.BathyT30))
+colnames(OC.aov.mat.T30) <- c("EpiT30", "MesoT30", "BathyT30")
+
+OC.aov.mat.T90 = as.data.frame(cbind(OC.aov.mat.epiT90, OC.aov.mat.MesoT90, OC.aov.mat.BathyT90))
+colnames(OC.aov.mat.T90) <- c("EpiT90", "MesoT90", "BathyT90")
+
+OC.aov.mat.tidy.T0 <- pivot_longer(OC.aov.mat.T0, cols = 1:ncol(OC.aov.mat.T0), names_to = "Experiment", values_to = "OC")
+OC.aov.mat.tidy.T30 <- pivot_longer(OC.aov.mat.T30, cols = 1:ncol(OC.aov.mat.T30), names_to = "Experiment", values_to = "OC")
+OC.aov.mat.tidy.T90 <- pivot_longer(OC.aov.mat.T90, cols = 1:ncol(OC.aov.mat.T90), names_to = "Experiment", values_to = "OC")
+
+OC.aov.mat.tidy.T0 = as.data.frame(OC.aov.mat.tidy.T0[OC.aov.mat.tidy.T0[,2]!=0,])
+OC.aov.mat.tidy.T30 = as.data.frame(OC.aov.mat.tidy.T30[OC.aov.mat.tidy.T30[,2]!=0,])
+OC.aov.mat.tidy.T90 = as.data.frame(OC.aov.mat.tidy.T90[OC.aov.mat.tidy.T90[,2]!=0,])
+
+OC.lm.t0 <- lm(OC.aov.mat.tidy.T0[,2] ~ as.factor(OC.aov.mat.tidy.T0[,1]))
+OC.aov.t0 <- aov(OC.lm.t0)
+OC.Tuckey.t0 <- TukeyHSD(OC.aov.t0) # Epi != Meso = Bathy
+
+OC.lm.T30 <- lm(OC.aov.mat.tidy.T30[,2] ~ as.factor(OC.aov.mat.tidy.T30[,1]))
+OC.aov.T30 <- aov(OC.lm.T30)
+OC.Tuckey.T30 <- TukeyHSD(OC.aov.T30) # Epi != Meso != Bathy
+
+OC.lm.T90 <- lm(OC.aov.mat.tidy.T90[,2] ~ as.factor(OC.aov.mat.tidy.T90[,1]))
+OC.aov.T90 <- aov(OC.lm.T90)
+OC.Tuckey.T90 <- TukeyHSD(OC.aov.T90) # Epi != Meso = Bathy
+
+#Test if the difference between T30 and T0 is significant
+OC.delta.T30 = OC.aov.mat.T30 - OC.aov.mat.T0
+OC.delta.T30.tidy <- pivot_longer(OC.delta.T30, cols = 1:ncol(OC.delta.T30), names_to = "Experiment", values_to = "OC")
+OC.delta.T30.tidy = as.data.frame(OC.delta.T30.tidy[OC.delta.T30.tidy[,2]!=0,])
+
+OC.lm.delta.T30 <- lm(OC.delta.T30.tidy[,2] ~ as.factor(OC.delta.T30.tidy[,1]))
+OC.aov.delta.T30 <- aov(OC.lm.delta.T30)
+OC.Tuckey.delta.T30 <- TukeyHSD(OC.aov.delta.T30) # Epi != Meso != Bathy
+
+#Test if the difference between T90 and T0 is significant
+OC.delta.T90 = OC.aov.mat.T90 - OC.aov.mat.T0
+OC.delta.T90.tidy <- pivot_longer(OC.delta.T90, cols = 1:ncol(OC.delta.T90), names_to = "Experiment", values_to = "OC")
+OC.delta.T90.tidy = as.data.frame(OC.delta.T90.tidy[OC.delta.T90.tidy[,2]!=0,])
+
+OC.lm.delta.t90 <- lm(OC.delta.T90.tidy[,2] ~ as.factor(OC.delta.T90.tidy[,1]))
+OC.aov.delta.t90 <- aov(OC.lm.delta.t90)
+OC.Tuckey.delta.t90 <- TukeyHSD(OC.aov.delta.t90) # Epi != Meso = Bathy
+
+
+
+
+OC.prop.sum = colSums(OC.prop)
+OC.sum = data.frame(Trait,Time,OC.prop.sum)
+
+OC_EPI_ini = OC.prop.sum[Trait=="M2" & Time ==0]
+OC_MESO_ini = mean(c(OC.prop.sum[Trait=="M3" & Time ==0],  OC.prop.sum[Trait=="M4" & Time ==0]))
+OC_BATHY_ini = mean(c(OC.prop.sum[Trait=="M5" & Time ==0], OC.prop.sum[Trait=="M6" & Time ==0]))
+
+OC_EPI_15 = mean(c(OC.prop.sum[Trait=="M1" & Time == 15], OC.prop.sum[Trait=="M2" & Time == 15]))
+OC_MESO_15 = mean(c(OC.prop.sum[Trait=="M3" & Time == 15], OC.prop.sum[Trait=="M4" & Time == 15]))
+OC_BATHY_15 = mean(c(OC.prop.sum[Trait=="M5" & Time == 15], OC.prop.sum[Trait=="M6" & Time == 15]))
+
+OC_EPI_20 = mean(c(OC.prop.sum[Trait=="M1" & Time == 20], OC.prop.sum[Trait=="M2" & Time == 20]))
+OC_MESO_20 = OC.prop.sum[Trait=="M4" & Time == 20]
+OC_BATHY_20 = mean(c(OC.prop.sum[Trait=="M5" & Time == 20], OC.prop.sum[Trait=="M6" & Time == 20]))
+
+OC_EPI_30 = mean(c(OC.prop.sum[Trait=="M1" & Time == 30], OC.prop.sum[Trait=="M2" & Time == 30]))
+OC_MESO_30 = mean(c(OC.prop.sum[Trait=="M3" & Time == 30], OC.prop.sum[Trait=="M4" & Time == 30]))
+OC_BATHY_30 = mean(c(OC.prop.sum[Trait=="M5" & Time == 30], OC.prop.sum[Trait=="M6" & Time == 30]))
+
+OC_EPI_90 = mean(c(OC.prop.sum[Trait=="M1" & Time == 90], OC.prop.sum[Trait=="M2" & Time == 90]))
+OC_MESO_90 = OC.prop.sum[Trait=="M4" & Time == 90]
+OC_BATHY_90 = mean(c(OC.prop.sum[Trait=="M5" & Time == 90], OC.prop.sum[Trait=="M6" & Time == 90]))
+
+#SD
+OC_EPI_ini.sd = 0
+OC_MESO_ini.sd = sd(c(OC.prop.sum[Trait=="M3" & Time ==0],  OC.prop.sum[Trait=="M4" & Time ==0]))
+OC_BATHY_ini.sd = sd(c(OC.prop.sum[Trait=="M5" & Time ==0], OC.prop.sum[Trait=="M6" & Time ==0]))
+
+OC_EPI_15.sd = sd(c(OC.prop.sum[Trait=="M1" & Time == 15], OC.prop.sum[Trait=="M2" & Time == 15]))
+OC_MESO_15.sd = sd(c(OC.prop.sum[Trait=="M3" & Time == 15], OC.prop.sum[Trait=="M4" & Time == 15]))
+OC_BATHY_15.sd = sd(c(OC.prop.sum[Trait=="M5" & Time == 15], OC.prop.sum[Trait=="M6" & Time == 15]))
+
+OC_EPI_20.sd = sd(c(OC.prop.sum[Trait=="M1" & Time == 20], OC.prop.sum[Trait=="M2" & Time == 20]))
+OC_MESO_20.sd = 0
+OC_BATHY_20.sd = sd(c(OC.prop.sum[Trait=="M5" & Time == 20], OC.prop.sum[Trait=="M6" & Time == 20]))
+
+OC_EPI_30.sd = sd(c(OC.prop.sum[Trait=="M1" & Time == 30], OC.prop.sum[Trait=="M2" & Time == 30]))
+OC_MESO_30.sd = sd(c(OC.prop.sum[Trait=="M3" & Time == 30], OC.prop.sum[Trait=="M4" & Time == 30]))
+OC_BATHY_30.sd = sd(c(OC.prop.sum[Trait=="M5" & Time == 30], OC.prop.sum[Trait=="M6" & Time == 30]))
+
+OC_EPI_90.sd = sd(c(OC.prop.sum[Trait=="M1" & Time == 90], OC.prop.sum[Trait=="M2" & Time == 90]))
+OC_MESO_90.sd = 0
+OC_BATHY_90.sd = sd(c(OC.prop.sum[Trait=="M5" & Time == 90], OC.prop.sum[Trait=="M6" & Time == 90]))
+
+DeltaOC = as.matrix(data.frame(Epi = c(OC_EPI_ini, OC_EPI_15, OC_EPI_20, OC_EPI_30, OC_EPI_90),
+                                 Meso = c(OC_MESO_ini, OC_MESO_15, OC_MESO_20, OC_MESO_30, OC_MESO_90),
+                                 Bathy = c(OC_BATHY_ini, OC_BATHY_15, OC_BATHY_20, OC_BATHY_30, OC_BATHY_90)))
+
+DeltaOC.sd = as.matrix(data.frame(Epi = c(OC_EPI_ini.sd, OC_EPI_15.sd, OC_EPI_20.sd, OC_EPI_30.sd, OC_EPI_90.sd),
+                                 Meso = c(OC_MESO_ini.sd, OC_MESO_15.sd, OC_MESO_20.sd, OC_MESO_30.sd, OC_MESO_90.sd),
+                                 Bathy = c(OC_BATHY_ini.sd, OC_BATHY_15.sd, OC_BATHY_20.sd, OC_BATHY_30.sd, OC_BATHY_90.sd)))
+
+#Export DeltaOC for a figure
+write.csv(x = DeltaOC, file = "../Input/DeltaOC.csv", fileEncoding = "UTF-8")
+
+
+#mean absolute deviation
+OC_EPI_ini.md = 0
+OC_MESO_ini.md = madstat(c(OC.prop.sum[Trait=="M3" & Time ==0],  OC.prop.sum[Trait=="M4" & Time ==0]))
+OC_BATHY_ini.md = madstat(c(OC.prop.sum[Trait=="M5" & Time ==0], OC.prop.sum[Trait=="M6" & Time ==0]))
+
+OC_EPI_15.md = madstat(c(OC.prop.sum[Trait=="M1" & Time == 15], OC.prop.sum[Trait=="M2" & Time == 15]))
+OC_MESO_15.md = madstat(c(OC.prop.sum[Trait=="M3" & Time == 15], OC.prop.sum[Trait=="M4" & Time == 15]))
+OC_BATHY_15.md = madstat(c(OC.prop.sum[Trait=="M5" & Time == 15], OC.prop.sum[Trait=="M6" & Time == 15]))
+
+OC_EPI_20.md = madstat(c(OC.prop.sum[Trait=="M1" & Time == 20], OC.prop.sum[Trait=="M2" & Time == 20]))
+OC_MESO_20.md = 0
+OC_BATHY_20.md = madstat(c(OC.prop.sum[Trait=="M5" & Time == 20], OC.prop.sum[Trait=="M6" & Time == 20]))
+
+OC_EPI_30.md = madstat(c(OC.prop.sum[Trait=="M1" & Time == 30], OC.prop.sum[Trait=="M2" & Time == 30]))
+OC_MESO_30.md = madstat(c(OC.prop.sum[Trait=="M3" & Time == 30], OC.prop.sum[Trait=="M4" & Time == 30]))
+OC_BATHY_30.md = madstat(c(OC.prop.sum[Trait=="M5" & Time == 30], OC.prop.sum[Trait=="M6" & Time == 30]))
+
+OC_EPI_90.md = madstat(c(OC.prop.sum[Trait=="M1" & Time == 90], OC.prop.sum[Trait=="M2" & Time == 90]))
+OC_MESO_90.md = 0
+OC_BATHY_90.md = madstat(c(OC.prop.sum[Trait=="M5" & Time == 90], OC.prop.sum[Trait=="M6" & Time == 90]))
+
+DeltaOC.md = as.matrix(data.frame(Epi = c(OC_EPI_ini.md, OC_EPI_15.md, OC_EPI_20.md, OC_EPI_30.md, OC_EPI_90.md),
+                                 Meso = c(OC_MESO_ini.md, OC_MESO_15.md, OC_MESO_20.md, OC_MESO_30.md, OC_MESO_90.md),
+                                 Bathy = c(OC_BATHY_ini.md, OC_BATHY_15.md, OC_BATHY_20.md, OC_BATHY_30.md, OC_BATHY_90.md)))
+
+#Export DeltaOC.md (mean absolute deviation) for a figure
+write.csv(x = DeltaOC.md, file = "../Input/DeltaOC.md.csv", fileEncoding = "UTF-8")
+
+DeltaOC.pcent = as.matrix(data.frame(Epi = c((OC_EPI_15 - OC_EPI_ini)/OC_EPI_ini *100,
+                                             (OC_EPI_20 - OC_EPI_ini)/OC_EPI_ini *100,
+                                         (OC_EPI_30 - OC_EPI_ini)/OC_EPI_ini *100,
+                                         (OC_EPI_90 - OC_EPI_ini)/OC_EPI_ini *100),
+                                 Meso = c((OC_MESO_15 - OC_MESO_ini)/OC_MESO_ini *100,
+                                          (OC_MESO_20 - OC_MESO_ini)/OC_MESO_ini *100,
+                                          (OC_MESO_30 - OC_MESO_ini)/OC_MESO_ini *100,
+                                          (OC_MESO_90 - OC_MESO_ini)/OC_MESO_ini *100),
+                                 Bathy = c((OC_BATHY_15 - OC_BATHY_ini)/OC_BATHY_ini *100,
+                                           (OC_BATHY_20 - OC_BATHY_ini)/OC_BATHY_ini *100,
+                                          (OC_BATHY_30 - OC_BATHY_ini)/OC_BATHY_ini *100,
+                                          (OC_BATHY_90 - OC_BATHY_ini)/OC_BATHY_ini *100)))
+                      
+rownames(DeltaOC) = c("Day 0", "Day 15", "Day 20", "Day 30", "Day 90")
+rownames(DeltaOC.pcent) = c("Day 15", "Day 20", "Day 30", "Day 90")
+DeltaOC
+DeltaOC.pcent
+DeltaOC = cbind(c(0,15,20,31,92), DeltaOC)
+
+
+#ANOVA on temporal differences of mean OC ratio
+OC.sum.aov = OC.sum[c(1:37),]
+colnames(OC.sum.aov)[3] = "OC"
+OC.sum.aov[,1] = as.character(OC.sum.aov[,1])
+OC.sum.aov[OC.sum.aov$Trait == "M1",1] = "Epi"
+OC.sum.aov[OC.sum.aov$Trait == "M2",1] = "Epi"
+OC.sum.aov[OC.sum.aov$Trait == "M3",1] = "Meso"
+OC.sum.aov[OC.sum.aov$Trait == "M4",1] = "Meso"
+OC.sum.aov[OC.sum.aov$Trait == "M5",1] = "Bathy"
+OC.sum.aov[OC.sum.aov$Trait == "M6",1] = "Bathy"
+
+OC.sum.aov$Time = as.factor(OC.sum.aov$Time)
+
+OC.epi.aov = aov(OC ~ Time, data = OC.sum.aov[OC.sum.aov$Trait=="Epi"&  OC.sum.aov$Time == "0" | OC.sum.aov$Trait=="Epi"& OC.sum.aov$Time == "90" | OC.sum.aov$Trait=="Epi"& OC.sum.aov$Time=="30",])
+OC.epi.Tukey = TukeyHSD(OC.epi.aov, "Time") #Not significant
+
+OC.Meso.aov = aov(OC ~ Time, data = OC.sum.aov[OC.sum.aov$Trait=="Meso"&  OC.sum.aov$Time == "0" | OC.sum.aov$Trait=="Meso"& OC.sum.aov$Time == "90" | OC.sum.aov$Trait=="Meso"& OC.sum.aov$Time=="30",])
+OC.Meso.Tukey = TukeyHSD(OC.Meso.aov, "Time") #Not significant
+
+OC.Bathy.aov = aov(OC ~ Time, data = OC.sum.aov[OC.sum.aov$Trait=="Bathy"&  OC.sum.aov$Time == "0" | OC.sum.aov$Trait=="Bathy"& OC.sum.aov$Time == "90" | OC.sum.aov$Trait=="Bathy"& OC.sum.aov$Time=="30",])
+OC.Bathy.Tukey = TukeyHSD(OC.Bathy.aov, "Time") #Significant
+
+# write.csv(round(FTMS.Ideg.ave,2), "../Output/Ideg.csv", fileEncoding = "UTF-8")
+```
+
+#Compositional changes - Fig.2d-f
+```{r}
+
+#Note. Letters d, e and f were added in Inkscape while merging both files
+
+Comp.ft = read.csv("../Input/summary_table_tresh.csv", sep = ";")
+Comp.ft = Comp.ft[c(which(Comp.ft[,2]==0),which(Comp.ft[,2]==90)),]
+aliphatics = Comp.ft[,15] + Comp.ft[,16]
+unsat.HO = Comp.ft[,19]
+unsat.LO = Comp.ft[,20]
+peptides = Comp.ft[,21]
+polyphenols = Comp.ft[,22] + Comp.ft[,23]
+
+Comp = t(cbind(aliphatics,unsat.HO,unsat.LO,peptides,polyphenols))
+
+
+Comp.ave = cbind(Comp[,1],
+                 rowMeans(cbind(Comp[,2],Comp[,3])),
+                 rowMeans(cbind(Comp[,4],Comp[,5])),
+                 rowMeans(cbind(Comp[,7],Comp[,8])),
+                 Comp[,9],
+                 rowMeans(cbind(Comp[,10],Comp[,11])))
+Comp.sd = cbind(0,
+                 rowSd(cbind(Comp[,2],Comp[,3])),
+                 rowSd(cbind(Comp[,4],Comp[,5])),
+                 rowSd(cbind(Comp[,7],Comp[,8])),
+                 0,
+                 rowSd(cbind(Comp[,10],Comp[,11])))
+Comp.md = cbind(0,
+                 rowMd(cbind(Comp[,2],Comp[,3])),
+                 rowMd(cbind(Comp[,4],Comp[,5])),
+                 rowMd(cbind(Comp[,7],Comp[,8])),
+                 0,
+                 rowMd(cbind(Comp[,10],Comp[,11])))
+
+colnames(Comp.ave) = c("S0", "M0", "B0", "S92", "M92", "B92")
+colnames(Comp.sd) = colnames(Comp.ave)
+
+col.comp = c("#73BAE6","#C7144C","#FFD700","#33a02c","#C742B5")
+
+{
+  pdf("../Output/Fig2d-f.pdf", width = 10, height = 4)
+barcenter<- barplot(Comp.ave[,c(1,4,2,5,3,6)],
+        beside = T, 
+        ylim = c(0,60),
+        col = col.comp,
+        las = 1,
+        ylab = "% of assigned molecular formulas",
+        xlab = "Incubation time (days)",
+        names.arg = c(0, 92, 0, 92, 0, 92))
+
+  arrows(barcenter, Comp.ave[,c(1,4,2,5,3,6)] - Comp.md[,c(1,4,2,5,3,6)],
+         barcenter, Comp.ave[,c(1,4,2,5,3,6)] + Comp.md[,c(1,4,2,5,3,6)],
+         angle = 90,
+         code = 3,
+         length = 0.05)
+  
+  legend("top",
+         legend = c("Aliphatics", "Polyphenols", "Unsaturated, high oxygen", "Peptides", "Unsaturated, low oxygen"),
+          fill = col.comp[c(1,4,2,5,3)],
+         ncol = 3,
+         bty = "n")
+  dev.off()
+  }
+  
+```
